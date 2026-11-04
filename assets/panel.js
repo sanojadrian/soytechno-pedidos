@@ -384,5 +384,6 @@
     app.innerHTML = '<main class="main"><div class="body"><div class="card"><span class="eyebrow">Falta configurar</span><h1>Conecta la base de datos</h1><p>Completa <span class="mono">assets/config.js</span> con la Project URL y la anon key de Supabase.</p></div></div></main>';
     return;
   }
+  window.__soyRecargar = cargar; // permite forzar una recarga (pruebas y demos)
   pintar(); cargar(); escuchar();
 })();

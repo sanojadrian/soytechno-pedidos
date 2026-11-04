@@ -145,6 +145,7 @@
 
   if (!listo) { $('#cl-body').innerHTML = '<div class="info">Esta demo todavía no está conectada a su base de datos.</div>'; return; }
   if (!code) { $('#cl-body').innerHTML = '<div class="info">Falta el número de pedido en el enlace.</div>'; return; }
+  window.__soyRecargar = cargar; // permite forzar una recarga (pruebas y demos)
   cargar();
   sb.channel('pedido-' + code)
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'pedidos', filter: 'code=eq.' + code }, ev => {

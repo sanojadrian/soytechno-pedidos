@@ -97,3 +97,6 @@ drop policy if exists demo_despacho_insert on storage.objects;
 create policy demo_despacho_insert on storage.objects for insert to anon, authenticated with check (bucket_id = 'despacho');
 drop policy if exists demo_despacho_read on storage.objects;
 create policy demo_despacho_read on storage.objects for select to anon, authenticated using (bucket_id = 'despacho');
+
+-- Que la API vea las tablas nuevas de inmediato
+notify pgrst, 'reload schema';

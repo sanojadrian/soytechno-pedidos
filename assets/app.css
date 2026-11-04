@@ -177,3 +177,10 @@ button.opt{width:100%;text-align:left;font:inherit;color:inherit}
 .steps li.now b{color:var(--accent)}
 .steps li small{display:block;color:var(--muted)}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+
+/* aviso por WhatsApp */
+.wa-send{display:grid;gap:8px}
+.wa-send label{font-weight:600;font-size:14px}
+.wa-send .linkbox input{flex:1;min-width:0;font:15px var(--f-body);padding:9px 12px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg);color:var(--ink)}
+.wa-ok{color:var(--ok);font-weight:600}
+.wa-bad{color:var(--bad);font-weight:600}

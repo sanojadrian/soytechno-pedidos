@@ -23,6 +23,9 @@
   const UI = { dfil: 'Todos', dsel: null, atab: 'noval', ssel: null, subiendo: {}, reset: false, conectado: false, otra: null, jtab: 'tras', tq: '', tienda: 'CCCT' };
   try { UI.tienda = localStorage.getItem('soy-tienda') || 'CCCT'; } catch (e) { /* sin almacenamiento */ }
   let pendiente = false;
+  const WA = !!(window.SOY_CONFIG && window.SOY_CONFIG.whatsapp);   // avisos reales por WhatsApp (Callbell)
+  const WAST = {};                                                   // code → último aviso de WhatsApp
+  const AVISO = { enlace: 'enlace del pedido', lecheria: 'fecha de Lechería', alternativas: 'alternativas', despachado: 'pedido despachado' };
 
   const lista = f => Array.from(P.values()).filter(f).sort((a, b) => new Date(a.updated_at) - new Date(b.updated_at));
   const cnt = f => lista(f).length;
@@ -88,7 +91,9 @@
       if (o && o.st === 'standby') der = '<div class="card"><span class="eyebrow">Pedido MIX</span><h2>#' + esc(o.code) + ' va a Stand-by</h2><p>Es una venta MIX: el bot no le escribe al cliente. La atiende un asesor desde su panel.</p><div class="actbar"><button type="button" class="btn ghost sm" data-act="b-nuevo">Cargar otro correo</button></div></div>';
       else if (o) der = '<div class="card"><span class="eyebrow">Listo · pedido #' + esc(o.code) + '</span><h2>Así le llega al cliente</h2>'
         + '<div class="wa"><div class="msg">¡Hola ' + esc(((o.cliente && o.cliente.nombre) || '').split(' ')[0].toLowerCase().replace(/^./, x => x.toUpperCase())) + '! 👋 Recibimos tu pedido Cashea <b>#' + esc(o.code) + '</b>: ' + esc(o.producto) + '.' + (Number(o.ini_pct) ? ' Inicial ' + Number(o.ini_pct) + '%: <b>' + money(o.ini_monto) + '</b>.' : ' Sin inicial.') + '<br>Elige cómo recibirlo' + (Number(o.ini_pct) ? ' y paga tu inicial' : '') + ' aquí 👇</div></div>'
-        + '<p class="note">En la demo, el cliente abre su enlace con este código QR (en el sistema real le llega por WhatsApp).</p>'
+        + (WA ? '<div class="wa-send"><label for="wa-tel">WhatsApp del cliente</label><div class="linkbox"><input id="wa-tel" type="tel" inputmode="tel" value="' + esc((o.cliente && o.cliente.telefono) || '') + '"><button type="button" class="btn sm" data-act="wa-enviar" data-c="' + esc(o.code) + '">Enviar por WhatsApp</button></div>'
+          + (WAST[o.code] ? '<p class="note ' + (WAST[o.code].ok ? 'wa-ok' : WAST[o.code].ok === false ? 'wa-bad' : '') + '" role="status">' + esc(WAST[o.code].txt) + '</p>' : '') + '<p class="note">Si no llega, el cliente también puede abrir su enlace con este código QR.</p></div>'
+          : '<p class="note">En la demo, el cliente abre su enlace con este código QR (en el sistema real le llega por WhatsApp).</p>')
         + '<div class="qr"><div id="qr"></div><span class="mono" style="color:#10162B">Escanea con la cámara del teléfono</span></div>'
         + '<div class="linkbox"><span id="clink">' + esc(clienteURL(o.code)) + '</span><button type="button" class="btn ghost sm" data-act="copiar" data-t="clink">Copiar enlace</button></div>'
         + '<p>Estado ahora: ' + pill(o.st) + '</p><div class="actbar"><button type="button" class="btn ghost sm" data-act="b-nuevo">Cargar otro correo</button></div></div>';
@@ -288,6 +293,23 @@
       toast('No se pudo crear: ' + error.message); return;
     }
     P.set(data.code, data); B.creado = data.code; B.txt = ''; B.p = null; pintar();
+    if (data.st === 'cliente') avisar(data.code, 'enlace');
+  }
+
+  /* Aviso por WhatsApp a través de la función enviar-whatsapp (la clave de Callbell vive en el servidor) */
+  async function avisar(code, tipo, telefono) {
+    if (!WA) return null;
+    WAST[code] = { ok: null, txt: 'Enviando WhatsApp…' }; pintar();
+    let r;
+    try {
+      const { data, error } = await sb.functions.invoke('enviar-whatsapp', { body: { code: code, tipo: tipo, telefono: telefono || undefined } });
+      r = error ? { ok: false, detalle: 'no pude contactar el servicio de WhatsApp (' + error.message + ')' } : data;
+    } catch (x) { r = { ok: false, detalle: x.message }; }
+    const ok = !!(r && r.ok);
+    WAST[code] = { ok: ok, txt: ok ? 'WhatsApp enviado a ' + r.to + ' · ' + AVISO[tipo] : 'No se envió el WhatsApp: ' + ((r && r.detalle) || 'error desconocido') };
+    if (ok) await upd(code, {}, 'WhatsApp enviado al cliente: ' + AVISO[tipo]); else pintar();
+    toast(WAST[code].txt);
+    return r;
   }
 
   app.addEventListener('click', async e => {
@@ -299,6 +321,14 @@
       case 'b-leer': { const t = $('#b-txt'); B.txt = t ? t.value : B.txt; B.p = parseCashea(B.txt); B.creado = null; if (!B.p.code) toast('No encontré el código del pedido en ese texto.'); pintar(); break; }
       case 'b-crear': b.disabled = true; await crear(); break;
       case 'b-nuevo': B.txt = ''; B.p = null; B.creado = null; pintar(); break;
+      case 'wa-enviar': {
+        const o = P.get(c), inp = $('#wa-tel'), tel = inp ? inp.value.trim() : '';
+        if (!o || !tel) { toast('Escribe el número de WhatsApp.'); break; }
+        if (inp) inp.blur();
+        b.disabled = true;
+        if (tel !== ((o.cliente || {}).telefono || '')) await upd(c, { cliente: Object.assign({}, o.cliente, { telefono: tel }) }, 'Teléfono del cliente actualizado');
+        await avisar(c, 'enlace', tel); break;
+      }
       case 'copiar': { const el = document.getElementById(b.getAttribute('data-t')); if (!el) break; try { await navigator.clipboard.writeText(el.textContent); b.textContent = 'Copiado'; } catch (x) { const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = 'Seleccionado'; } break; }
       case 'tomar': { b.disabled = true; const { data, error } = await sb.rpc('tomar_siguiente', { p_dept: b.getAttribute('data-d'), p_cajero: yo }); if (error) toast('Error: ' + error.message); else if (!data || !data.code) toast('No hay pedidos en cola.'); else { P.set(data.code, data); pintar(); } break; }
       case 'facturar': await upd(c, { st: 'despacho' }, 'Facturado en Profit'); toast('Facturado · pasó a Despacho'); break;
@@ -310,7 +340,7 @@
         const o = P.get(c), ent = Object.assign({}, o.entrega || {});
         const g = $('#d-guia'), r = $('#d-rut'); if (g && g.value.trim()) ent.guia = g.value.trim(); if (r) ent.rutero = r.value;
         await upd(c, { st: 'despachado', entrega: ent }, 'Despachado con ' + Object.keys(o.fotos || {}).length + ' fotos' + (ent.guia ? ' · guía ' + ent.guia : '') + (ent.rutero ? ' · ' + ent.rutero : ''));
-        toast('Despachado · respaldo guardado · el cliente lo ve en su enlace'); break;
+        toast('Despachado · respaldo guardado · el cliente lo ve en su enlace'); avisar(c, 'despachado'); break;
       }
       case 'atab': UI.atab = b.getAttribute('data-t'); pintar(); break;
       case 'corregir': {
@@ -323,7 +353,7 @@
         const pago = Object.assign({}, o.pago || {}); if (dest.trim()) pago.destino = dest.trim();
         await upd(c, { st: 'admin', tag: k, pago: pago }, 'Asesor lo envió a Administración (' + k + ')'); toast('Enviado a Administración · ' + k); break;
       }
-      case 'mix': await upd(c, { st: 'cliente', tag: 'MIX desglosado por asesor' }, 'Asesor desglosó el MIX y envió el enlace'); B.creado = c; vista = 'bandeja'; history.replaceState(null, '', '#bandeja'); pintar(); toast('Enlace listo para el cliente'); break;
+      case 'mix': await upd(c, { st: 'cliente', tag: 'MIX desglosado por asesor' }, 'Asesor desglosó el MIX y envió el enlace'); B.creado = c; vista = 'bandeja'; history.replaceState(null, '', '#bandeja'); pintar(); toast('Enlace listo para el cliente'); avisar(c, 'enlace'); break;
       case 'aprobar': await upd(c, { st: 'caja', tomado_por: null, tag: 'Pago aprobado por Administración' }, 'Administración aprobó el pago'); toast('Aprobado · volvió a la caja'); break;
       case 'rechazar': await upd(c, { st: 'noval', tag: 'Rechazado por Administración' }, 'Administración rechazó el pago'); toast('Rechazado · regresó a Asesores'); break;
       case 'ssel': UI.ssel = c; pintar(); break;
@@ -338,14 +368,15 @@
       case 'otraok': case 'jtras': {
         const s = ($(a === 'otraok' ? '#c-store' : '#j-st-' + CSS.escape(c)) || {}).value || 'Lechería'; UI.otra = null;
         await upd(c, { st: 'traslado', tomado_por: null, ajuste: Object.assign({}, P.get(c).ajuste, { motivo: (P.get(c).ajuste || {}).motivo || 'Otra tienda', origen: s, solicitado_at: new Date().toISOString() }) }, 'Traslado pedido desde ' + s);
-        toast(s === 'Lechería' ? 'Traslado desde Lechería · el cliente ve que llega el ' + etaLecheria() : 'Traslado interno desde ' + s + ' · mismo día · sin aviso al cliente'); break;
+        toast(s === 'Lechería' ? 'Traslado desde Lechería · el cliente ve que llega el ' + etaLecheria() : 'Traslado interno desde ' + s + ' · mismo día · sin aviso al cliente');
+        if (s === 'Lechería') avisar(c, 'lecheria'); break;
       }
       case 'jtab': UI.jtab = b.getAttribute('data-t'); pintar(); break;
       case 'recibido': await upd(c, { st: 'caja', tomado_por: null, tag: 'Traslado recibido' }, 'Traslado recibido'); toast('Recibido · volvió a Caja ' + (DN[(P.get(c) || {}).dept] || '')); break;
       case 'alt': {
         const ta = $('#j-alt-' + CSS.escape(c)), alts = (ta ? ta.value : '').split('\n').map(x => x.trim()).filter(Boolean);
         if (!alts.length) { toast('Escribe al menos una alternativa.'); break; }
-        await upd(c, { st: 'espera', ajuste: Object.assign({}, P.get(c).ajuste, { alternativas: alts }) }, 'Ajuste envió alternativas al cliente'); toast('El cliente ya ve las alternativas en su enlace'); break;
+        await upd(c, { st: 'espera', ajuste: Object.assign({}, P.get(c).ajuste, { alternativas: alts }) }, 'Ajuste envió alternativas al cliente'); toast('El cliente ya ve las alternativas en su enlace'); avisar(c, 'alternativas'); break;
       }
       case 'jcancel': await upd(c, { st: 'cancelado', tomado_por: null }, 'Pedido cancelado'); toast('Pedido cancelado'); break;
       case 'apagar': case 'encender': {

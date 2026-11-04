@@ -1,0 +1,4 @@
+# La página llama a esta función con la clave publishable, que no es un JWT.
+# La función protege la demo a su manera: solo envía a los números de DEMO_TELEFONOS.
+[functions.enviar-whatsapp]
+verify_jwt = false

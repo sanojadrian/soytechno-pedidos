@@ -70,7 +70,7 @@
 
   function pintar(foco) {
     if (!O) return;
-    const resumen = '<div class="sum"><span class="eyebrow">Pedido Cashea #' + esc(O.code) + '</span><b>' + esc(O.producto) + '</b><span class="muted">Total ' + money(O.total) + (Number(O.ini_pct) ? ' · Inicial ' + Number(O.ini_pct) + '%: ' + money(O.ini_monto) : ' · Sin inicial') + '</span></div>';
+    const resumen = '<div class="sum"><span class="eyebrow">Pedido Cashea #' + esc(O.code) + '</span><b>' + esc(O.producto) + '</b><span class="muted">' + (Number(O.ini_pct) ? 'Inicial ' + Number(O.ini_pct) + '%: ' + money(O.ini_monto) : 'Sin inicial') + '</span></div>';
     let cuerpo;
     if (O.st === 'cliente') cuerpo = formulario();
     else if (O.st === 'standby') cuerpo = '<div class="info">Tu asesor te contactará por WhatsApp para confirmar los detalles de tu compra.</div>';

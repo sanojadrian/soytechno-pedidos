@@ -58,21 +58,21 @@
   const aprobado = o => o.tag === 'Pago aprobado por Administración';
 
   function factura(o) {
-    const fin = Number(o.total) - Number(o.ini_monto), c = o.cliente || {};
+    const c = o.cliente || {};
     const pago = aprobado(o) ? '<div class="paybox ok"><b>Pago aprobado por Administración</b><span>No hace falta verificarlo de nuevo.</span></div>'
       : o.pago ? '<div class="paybox"><b>Verifica este pago móvil en BNC</b>' + kv([['Monto', money(o.ini_monto) + ' · en Bs a tasa BCV'], ['Banco emisor', esc(o.pago.banco)], ['Teléfono', esc(o.pago.telefono)], ['Referencia', '<span class="mono">' + esc(o.pago.referencia) + '</span> · única ✓'], ['Fecha', esc(fechaVE(o.pago.fecha))]]) + '</div>'
       : '<div class="paybox ok"><b>Inicial 0%</b><span>No hay pago que verificar.</span></div>';
     return '<div class="card"><div class="c-head"><div><span class="eyebrow">Lo que vas a facturar</span><h2>Pedido Cashea #' + esc(o.code) + '</h2></div><div>' + (o.tag ? '<span class="pill p-cliente">' + esc(o.tag) + '</span>' : '') + '</div></div>'
       + '<div class="grid2"><div><h4>Cliente</h4>' + kv([['Nombre', esc(c.nombre)], ['Cédula', esc(c.cedula)], ['Teléfono', esc(c.telefono)], ['Correo', esc(c.correo)]]) + '</div><div><h4>Entrega</h4>' + kv([['Departamento', esc(DN[o.dept] || '')], ['Destino', entregaTxt(o)]]) + '</div></div>'
-      + '<div class="table-scroll"><table class="mini"><thead><tr><th>Descripción</th><th>Cant.</th><th class="num">Total</th></tr></thead><tbody><tr><td>' + esc(o.producto) + '</td><td>' + esc(o.cantidad) + '</td><td class="num">' + money(o.total) + '</td></tr><tr class="tot"><td>Total a facturar (total Cashea)</td><td></td><td class="num">' + money(o.total) + '</td></tr></tbody></table></div>'
-      + '<div class="grid2"><div><h4>Cómo se paga</h4>' + kv([['Inicial (' + Number(o.ini_pct) + '%)', money(o.ini_monto)], ['Financia Cashea', money(fin)], ['Cuotas', esc((o.cuotas && o.cuotas.n) || '—')]]) + '</div><div>' + pago + '</div></div>'
+      + '<div class="table-scroll"><table class="mini"><thead><tr><th>Descripción</th><th>Cant.</th><th class="num">Total sin IVA</th></tr></thead><tbody><tr><td>' + esc(o.producto) + '</td><td>' + esc(o.cantidad) + '</td><td class="num">' + money(o.total) + '</td></tr><tr class="tot"><td>Total sin IVA</td><td></td><td class="num">' + money(o.total) + '</td></tr></tbody></table></div>'
+      + '<div class="grid2"><div><h4>Cómo se paga</h4>' + kv([['Pago inicial', money(o.ini_monto) + ' · ' + Number(o.ini_pct) + '%'], ['Cuotas', esc((o.cuotas && o.cuotas.n) || '—')]]) + '</div><div>' + pago + '</div></div>'
       + '<div class="actbar"><button type="button" class="btn" data-act="facturar" data-c="' + esc(o.code) + '">' + (o.pago && !aprobado(o) ? 'Pago verificado en BNC · Facturar' : 'Facturar en Profit') + '</button>'
       + (o.pago && !aprobado(o) ? '<button type="button" class="btn ghost sm" data-act="noval" data-c="' + esc(o.code) + '">No pude validar</button>' : '')
       + '<button type="button" class="btn ghost sm" data-act="soltar" data-c="' + esc(o.code) + '">Devolver a la cola</button></div></div>';
   }
 
   /* ---------- vistas ---------- */
-  const EJEMPLO = 'Código de identificación:\n' + (Math.floor(Math.random() * 9e8) + 1e8) + '\n\nInformación de pagos\n\nNúmero de cuotas:\t6\nFecha primer pago:\t18/11/2026\nFecha último pago:\t03/02/2027\nInformación de Cliente\n\nMARÍA GONZÁLEZ (PRUEBA)\n+584145550123\n12345678\nmaria.prueba@correo.com\n\nResumen de pedido\nMOTOROLA G86 POWER 8GB/256GB (XT2527-6), SPELLBOUND BLUE. CELULAR\nCantidad 1\nTotal:\t$407.00\nPago Inicial:\t$81.40 - 20%';
+  const EJEMPLO = 'Confirmación del pedido\n\nCódigo de identificación:\n' + (Math.floor(Math.random() * 9e8) + 1e8) + '\n\nInformación de pagos\n\nNúmero de cuotas:\t6\nFecha primer pago:\t18/11/2026\nFecha último pago:\t27/01/2027\nInformación de Cliente\n\nMARÍA GONZÁLEZ (PRUEBA)\n+584145550123\n12345678\nmaria.prueba@correo.com\n\nResumen de pedido\n\nSAMSUNG GALAXY A16 4G 4GB/128GB SM-A165M/DS, LIGHT GREEN. CELULAR.\n\nPrecio:\t$220.00\nCantidad:\t1\nTotal:\t$220.00\nResumen\n\nSubtotal:\t$172.41\nIVA (16%):\t$27.59\n \nTotal:\t$200.00\nPago Inicial:\t$40.00 - 20%';
 
   function vBandeja() {
     const p = B.p;
@@ -81,7 +81,7 @@
       const o = P.get(B.creado);
       if (o && o.st === 'standby') der = '<div class="card"><span class="eyebrow">Pedido MIX</span><h2>#' + esc(o.code) + ' va a Stand-by</h2><p>Es una venta MIX: el bot no le escribe al cliente. La atiende un asesor desde su panel.</p><div class="actbar"><button type="button" class="btn ghost sm" data-act="b-nuevo">Cargar otro correo</button></div></div>';
       else if (o) der = '<div class="card"><span class="eyebrow">Listo · pedido #' + esc(o.code) + '</span><h2>Así le llega al cliente</h2>'
-        + '<div class="wa"><div class="msg">¡Hola ' + esc(((o.cliente && o.cliente.nombre) || '').split(' ')[0].toLowerCase().replace(/^./, x => x.toUpperCase())) + '! 👋 Recibimos tu pedido Cashea <b>#' + esc(o.code) + '</b>: ' + esc(o.producto) + '. Total ' + money(o.total) + (Number(o.ini_pct) ? ' · Inicial ' + Number(o.ini_pct) + '%: <b>' + money(o.ini_monto) + '</b>' : ' · sin inicial') + '.<br>Elige cómo recibirlo' + (Number(o.ini_pct) ? ' y paga tu inicial' : '') + ' aquí 👇</div></div>'
+        + '<div class="wa"><div class="msg">¡Hola ' + esc(((o.cliente && o.cliente.nombre) || '').split(' ')[0].toLowerCase().replace(/^./, x => x.toUpperCase())) + '! 👋 Recibimos tu pedido Cashea <b>#' + esc(o.code) + '</b>: ' + esc(o.producto) + '.' + (Number(o.ini_pct) ? ' Inicial ' + Number(o.ini_pct) + '%: <b>' + money(o.ini_monto) + '</b>.' : ' Sin inicial.') + '<br>Elige cómo recibirlo' + (Number(o.ini_pct) ? ' y paga tu inicial' : '') + ' aquí 👇</div></div>'
         + '<p class="note">En la demo, el cliente abre su enlace con este código QR (en el sistema real le llega por WhatsApp).</p>'
         + '<div class="qr"><div id="qr"></div><span class="mono" style="color:#10162B">Escanea con la cámara del teléfono</span></div>'
         + '<div class="linkbox"><span id="clink">' + esc(clienteURL(o.code)) + '</span><button type="button" class="btn ghost sm" data-act="copiar" data-t="clink">Copiar enlace</button></div>'
@@ -89,7 +89,7 @@
     } else if (p) {
       const c = p.cliente;
       der = '<div class="ticket"><h4>COMANDA · LEÍDA DEL CORREO</h4>'
-        + [['Pedido', '#' + p.code], ['Cliente', c.nombre], ['Cédula', c.cedula], ['Teléfono', c.telefono], ['Correo', c.correo], ['Producto', p.producto], ['Cantidad', p.cantidad], ['Total', money(p.total)], ['Inicial', Number(p.ini_pct) + '% · ' + money(p.ini_monto)], ['Cuotas', (p.cuotas.n || '—') + ' · ' + (p.cuotas.primera || '') + ' → ' + (p.cuotas.ultima || '')], ['Destino', p.mix ? 'Stand-by (venta MIX)' : 'Bot → cliente']].map(r => '<div class="trow"><span>' + r[0] + '</span><span>' + esc(r[1] || '—') + '</span></div>').join('')
+        + [['Pedido', '#' + p.code], ['Cliente', c.nombre], ['Cédula', c.cedula], ['Teléfono', c.telefono], ['Correo', c.correo], ['Producto', p.producto], ['Cantidad', p.cantidad], ['Total sin IVA', money(p.total) + (p.iva_nota ? ' · ' + p.iva_nota : '')], ['Pago inicial', money(p.ini_monto) + ' · ' + Number(p.ini_pct) + '%'], ['Cuotas', (p.cuotas.n || '—') + ' · ' + (p.cuotas.primera || '') + ' → ' + (p.cuotas.ultima || '')], ['Destino', p.mix ? 'Stand-by (venta MIX)' : 'Bot → cliente']].map(r => '<div class="trow"><span>' + r[0] + '</span><span>' + esc(r[1] || '—') + '</span></div>').join('')
         + (p.errores.length ? '<p class="err" style="margin-top:10px">' + p.errores.map(esc).join('<br>') + '</p>' : '')
         + '</div><div class="actbar"><button type="button" class="btn" data-act="b-crear"' + (p.errores.length && !p.code ? ' disabled' : '') + '>' + (p.mix ? 'Crear y enviar a Stand-by' : 'Crear pedido y avisar al cliente') + '</button><button type="button" class="btn ghost sm" data-act="b-nuevo">Cancelar</button></div>';
     } else der = empty('Pega un correo de Cashea', 'El sistema lo lee y arma la comanda sin copiar datos a mano.');
@@ -196,7 +196,7 @@
   /* ---------- acciones ---------- */
   async function crear() {
     const p = B.p; if (!p || !p.code) return;
-    const fila = { code: p.code, st: p.mix ? 'standby' : 'cliente', cliente: p.cliente, producto: p.producto, cantidad: p.cantidad, total: p.total || 0, ini_pct: p.ini_pct || 0, ini_monto: p.ini_monto || 0, cuotas: p.cuotas, tag: p.mix ? 'MIX · para un asesor' : '', historial: [{ t: new Date().toISOString(), e: 'Correo de Cashea leído' + (p.mix ? ' · venta MIX a Stand-by' : '') }] };
+    const fila = { code: p.code, st: p.mix ? 'standby' : 'cliente', cliente: p.cliente, producto: p.producto, cantidad: p.cantidad, total: p.total || 0, ini_pct: p.ini_pct || 0, ini_monto: p.ini_monto || 0, cuotas: Object.assign({}, p.cuotas, { precio: p.precio, iva: p.iva, total_cashea: p.total_cashea }), tag: p.mix ? 'MIX · para un asesor' : '', historial: [{ t: new Date().toISOString(), e: 'Correo de Cashea leído' + (p.mix ? ' · venta MIX a Stand-by' : '') }] };
     const { data, error } = await sb.from('pedidos').insert(fila).select().single();
     if (error) {
       if (error.code === '23505') { B.creado = p.code; toast('Ese pedido ya estaba cargado. No se duplica.'); pintar(); return; }

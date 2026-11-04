@@ -54,21 +54,30 @@
     let prod = [];
     if (rp > -1) {
       for (let i = rp + 1; i < lines.length; i++) {
-        if (/^(cantidad|total|pago inicial)/.test(L[i]) || lines[i].startsWith('@')) break;
+        if (/^(precio|cantidad|total|subtotal|resumen|iva|pago inicial)/.test(L[i]) || lines[i].startsWith('@')) break;
         prod.push(lines[i]);
       }
     }
     p.producto = prod.join(' ').trim();
     const cant = after('cantidad');
     p.cantidad = parseInt(String(cant || '1').replace(/\D/g, ''), 10) || 1;
-    const ti = L.findIndex(l => /^total\b/.test(l));
-    p.total = ti > -1 ? num((lines[ti].split(':')[1] || lines[ti + 1] || '').match(/[\d.,]+/)?.[0]) : NaN;
+    const val = i => { const t = lines[i].indexOf(':') > -1 ? lines[i].slice(lines[i].indexOf(':') + 1) : (lines[i + 1] || ''); const m = t.match(/[\d.,]+/); return m ? num(m[0]) : NaN; };
+    const ult = re => { let r = -1; L.forEach((l, i) => { if (re.test(l)) r = i; }); return r; };
+    const si = ult(/^subtotal\b/), ii = ult(/^iva\b/), ti = ult(/^total\b/), pr = ult(/^precio\b/);
+    p.total_cashea = ti > -1 ? val(ti) : NaN;   // total con IVA (lo que paga el cliente)
+    p.iva = ii > -1 ? val(ii) : NaN;
+    p.precio = pr > -1 ? val(pr) : NaN;
+    p.iva_nota = '';
+    if (si > -1) p.total = val(si);              // total sin IVA = Subtotal
+    else if (p.total_cashea > 0 && p.iva >= 0) p.total = Math.round((p.total_cashea - p.iva) * 100) / 100;
+    else if (p.total_cashea > 0) { p.total = Math.round(p.total_cashea / 1.16 * 100) / 100; p.iva_nota = 'IVA calculado al 16%: revisar'; }
+    else p.total = NaN;
     const pi = idx('pago inicial');
     if (pi > -1) {
       const t = lines[pi].indexOf(':') > -1 ? lines[pi].slice(lines[pi].indexOf(':') + 1) : (lines[pi + 1] || '');
       const m = t.match(/\$\s*([\d.,]+)/), pc = t.match(/([\d.,]+)\s*%/);
       p.ini_monto = m ? num(m[1]) : 0;
-      p.ini_pct = pc ? num(pc[1]) : (p.total ? Math.round(p.ini_monto / p.total * 100) : 0);
+      p.ini_pct = pc ? num(pc[1]) : (p.total_cashea ? Math.round(p.ini_monto / p.total_cashea * 100) : 0);
     } else { p.ini_monto = 0; p.ini_pct = 0; }
     p.mix = /\bmix\b/i.test(p.producto);
 

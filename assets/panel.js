@@ -1,18 +1,18 @@
 /* Soytechno · Pedidos Cashea — panel de los departamentos */
 (function () {
   'use strict';
-  const { sb, listo, esc, money, hoyISO, fechaVE, hora, parseCashea, DEPTS, DN, ESTADO, pill, toast, comprimir } = window.SOY;
+  const { sb, listo, esc, money, hoyISO, fechaVE, hora, parseCashea, DEPTS, DN, ESTADO, pill, toast, comprimir, STORES, etaLecheria } = window.SOY;
   const $ = (s, r) => (r || document).querySelector(s);
   const app = $('#app');
 
   const P = new Map();               // code → pedido
-  const PERSONAS = ['Carla', 'Luis', 'María', 'Rosa', 'Javier', 'Andrea', 'Patricia', 'Supervisor'];
+  const PERSONAS = ['Carla', 'Luis', 'María', 'Rosa', 'Javier', 'Andrea', 'Patricia', 'Daniel', 'Ricardo', 'Supervisor'];
   let yo = 'Carla';
   try { yo = localStorage.getItem('soy-yo') || 'Carla'; } catch (e) { /* sin almacenamiento */ }
   const NAV = [
     ['Entrada', [['bandeja', 'Bandeja de correos']]],
     ['Cajas', DEPTS.map(d => ['caja-' + d, 'Caja ' + DN[d]])],
-    ['Operación', [['despacho', 'Despacho']]],
+    ['Operación', [['despacho', 'Despacho'], ['ajuste', 'Ajuste'], ['apagar', 'Productos a apagar'], ['tiendas', 'Tiendas']]],
     ['Atención', [['asesores', 'Asesores'], ['admin', 'Administración']]],
     ['Control', [['super', 'Supervisión']]]
   ];
@@ -20,7 +20,8 @@
   let vista = (location.hash || '').slice(1);
   if (!VISTAS.some(v => v[0] === vista)) vista = 'bandeja';
   const B = { txt: '', p: null, creado: null };
-  const UI = { dfil: 'Todos', dsel: null, atab: 'noval', ssel: null, subiendo: {}, reset: false, conectado: false };
+  const UI = { dfil: 'Todos', dsel: null, atab: 'noval', ssel: null, subiendo: {}, reset: false, conectado: false, otra: null, jtab: 'tras', tq: '', tienda: 'CCCT' };
+  try { UI.tienda = localStorage.getItem('soy-tienda') || 'CCCT'; } catch (e) { /* sin almacenamiento */ }
   let pendiente = false;
 
   const lista = f => Array.from(P.values()).filter(f).sort((a, b) => new Date(a.updated_at) - new Date(b.updated_at));
@@ -40,7 +41,12 @@
         else P.set(ev.new.code, ev.new);
         pintar();
       })
-      .subscribe(st => { UI.conectado = st === 'SUBSCRIBED'; const l = $('.live'); if (l) { l.classList.toggle('off', !UI.conectado); l.lastChild.textContent = UI.conectado ? 'En vivo' : 'Reconectando…'; } if (st === 'SUBSCRIBED') cargar(); });
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'productos_estado' }, ev => {
+        if (ev.eventType === 'DELETE') { if (ev.old && ev.old.producto) PE.delete(ev.old.producto); }
+        else PE.set(ev.new.producto, ev.new);
+        pintar();
+      })
+      .subscribe(st => { UI.conectado = st === 'SUBSCRIBED'; if (st === 'SUBSCRIBED') cargarPE(); const l = $('.live'); if (l) { l.classList.toggle('off', !UI.conectado); l.lastChild.textContent = UI.conectado ? 'En vivo' : 'Reconectando…'; } if (st === 'SUBSCRIBED') cargar(); });
   }
   async function upd(code, patch, evento) {
     const o = P.get(code); if (!o) return null;
@@ -68,7 +74,7 @@
       + '<div class="grid2"><div><h4>Cómo se paga</h4>' + kv([['Pago inicial', money(o.ini_monto) + ' · ' + Number(o.ini_pct) + '%'], ['Cuotas', esc((o.cuotas && o.cuotas.n) || '—')]]) + '</div><div>' + pago + '</div></div>'
       + '<div class="actbar"><button type="button" class="btn" data-act="facturar" data-c="' + esc(o.code) + '">' + (o.pago && !aprobado(o) ? 'Pago verificado en BNC · Facturar' : 'Facturar en Profit') + '</button>'
       + (o.pago && !aprobado(o) ? '<button type="button" class="btn ghost sm" data-act="noval" data-c="' + esc(o.code) + '">No pude validar</button>' : '')
-      + '<button type="button" class="btn ghost sm" data-act="soltar" data-c="' + esc(o.code) + '">Devolver a la cola</button></div></div>';
+      + cajaExtra(o) + '<button type="button" class="btn ghost sm" data-act="soltar" data-c="' + esc(o.code) + '">Devolver a la cola</button></div></div>';
   }
 
   /* ---------- vistas ---------- */
@@ -170,14 +176,92 @@
       + '<div class="actbar"><button type="button" class="btn ' + (UI.reset ? 'danger' : 'ghost') + ' sm" data-act="reset">' + (UI.reset ? 'Confirmar: borrar todos los pedidos' : 'Reiniciar demo') + '</button>' + (UI.reset ? '<button type="button" class="btn ghost sm" data-act="reset-no">No borrar</button>' : '') + '</div>';
   }
 
+  /* ---------- ajuste, productos a apagar, tiendas ---------- */
+  const PE = new Map();   // producto → { apagado, por, cambiado_at }
+  async function cargarPE() {
+    const { data, error } = await sb.from('productos_estado').select('*');
+    if (!error && data) { PE.clear(); data.forEach(r => PE.set(r.producto, r)); pintar(); }
+  }
+  const pm = (t, w, inner) => '<div class="pm"><div class="pm-h"><span>' + t + '</span><span class="who">' + (w || '') + '</span></div><div class="pm-b">' + inner + '</div></div>';
+  const ORIGENES = ['Lechería'].concat(STORES.filter(s => s !== 'Chacao' && s !== 'Lechería'));
+  const selTienda = (id, sel) => '<select id="' + id + '">' + ORIGENES.map(s => '<option' + (s === sel ? ' selected' : '') + '>' + s + '</option>').join('') + '</select>';
+  function cajaExtra(o) {
+    if (UI.otra === o.code) return '<label class="who-sel" for="c-store">¿En qué tienda está?' + selTienda('c-store', 'Lechería') + '</label><button type="button" class="btn sm" data-act="otraok" data-c="' + esc(o.code) + '">Pedir traslado</button><button type="button" class="btn ghost sm" data-act="otracancel">Volver</button>';
+    return '<button type="button" class="btn ghost sm" data-act="sinstock" data-c="' + esc(o.code) + '">Sin stock</button><button type="button" class="btn ghost sm" data-act="otra" data-c="' + esc(o.code) + '">Está en otra tienda</button><button type="button" class="btn ghost sm" data-act="version" data-c="' + esc(o.code) + '">Otra versión</button>';
+  }
+  function vAjuste() {
+    const t = UI.jtab || 'tras';
+    const tras = lista(o => o.st === 'traslado'), le = tras.filter(o => (o.ajuste || {}).origen === 'Lechería'), it = tras.filter(o => (o.ajuste || {}).origen !== 'Lechería');
+    const pend = lista(o => o.st === 'ajuste' || o.st === 'espera');
+    const tabs = '<div class="actbar" style="border:0;padding:0"><button type="button" class="btn sm ' + (t === 'tras' ? '' : 'ghost') + '" data-act="jtab" data-t="tras">Traslados (' + tras.length + ')</button><button type="button" class="btn sm ' + (t === 'stock' ? '' : 'ghost') + '" data-act="jtab" data-t="stock">Sin stock y otra versión (' + pend.length + ')</button></div>';
+    if (t === 'tras') {
+      const item = o => {
+        const a = o.ajuste || {}, lech = a.origen === 'Lechería', tarde = !lech && a.solicitado_at && (Date.now() - new Date(a.solicitado_at).getTime()) > 864e5;
+        return row(o, esc(a.origen) + ' → ' + (o.dept === 'Pickup' ? 'Tienda Chacao' : 'almacén') + ' · Caja ' + esc(DN[o.dept] || '') + (lech ? ' · llega el ' + etaLecheria(a.solicitado_at) : '') + (tarde ? ' · más de 24 h: avisar al cliente' : '') + (a.respuesta ? ' · el cliente eligió: ' + esc(a.respuesta) : ''))
+          + '<div class="actbar" style="border:0;padding:0"><button type="button" class="btn sm" data-act="recibido" data-c="' + esc(o.code) + '">Recibido</button></div>';
+      };
+      return tabs + '<div class="grid2">' + pm('Desde Lechería', 'Corte: miércoles', '<p class="note">El cliente recibe aviso con la fecha. Lo que se pide hasta el miércoles llega a Caracas el jueves o viernes.</p>' + (le.map(item).join('') || '<p class="muted">Sin traslados.</p>'))
+        + pm('Internos de Caracas', 'Mismo día', '<p class="note">El cliente no recibe aviso. Solo si pasan 24 horas sin llegar, se le avisa del retraso.</p>' + (it.map(item).join('') || '<p class="muted">Sin traslados.</p>')) + '</div>';
+    }
+    return tabs + (pend.length ? pend.map(o => {
+      const a = o.ajuste || {}, c = esc(o.code);
+      if (o.st === 'espera') return '<div class="card"><div class="c-head"><div><span class="eyebrow">' + esc(a.motivo || 'Ajuste') + '</span><h2>#' + c + ' · ' + esc(o.producto) + '</h2></div>' + pill(o.st) + '</div><p>Alternativas enviadas. El cliente elige desde su enlace y el pedido vuelve solo a la caja.</p><ul>' + (a.alternativas || []).map(x => '<li>' + esc(x) + '</li>').join('') + '</ul><div class="grid2"><div class="qr"><div data-qr="' + esc(clienteURL(o.code)) + '"></div><span class="mono" style="color:#10162B">Enlace del cliente</span></div><div class="linkbox"><span id="l-' + c + '">' + esc(clienteURL(o.code)) + '</span><button type="button" class="btn ghost sm" data-act="copiar" data-t="l-' + c + '">Copiar enlace</button></div></div></div>';
+      return '<div class="card"><div class="c-head"><div><span class="eyebrow">' + esc(a.motivo || 'Ajuste') + ' · desde Caja ' + esc(DN[o.dept] || '') + '</span><h2>#' + c + ' · ' + esc(o.producto) + '</h2></div>' + pill(o.st) + '</div>'
+        + kv([['Cliente', esc((o.cliente || {}).nombre) + ' · ' + esc((o.cliente || {}).telefono)]])
+        + '<div class="field"><label for="j-alt-' + c + '">Alternativas para ofrecer (una por línea)</label><textarea id="j-alt-' + c + '" rows="3">' + esc(o.producto) + ' · OTRO COLOR · mismo precio\nModelo superior · diferencia de $40</textarea><small>Escribe el nombre del producto como debe quedar en la comanda: si el cliente lo elige, reemplaza al original.</small></div>'
+        + '<div class="actbar"><button type="button" class="btn sm" data-act="alt" data-c="' + c + '">Enviar alternativas al cliente</button><label class="who-sel" for="j-st-' + c + '">o pedir a' + selTienda('j-st-' + c, 'Lechería') + '</label><button type="button" class="btn ghost sm" data-act="jtras" data-c="' + c + '">Pedir traslado</button><button type="button" class="btn ghost sm" data-act="jcancel" data-c="' + c + '">Cancelar pedido</button></div></div>';
+    }).join('') : empty('Nada pendiente', 'Cuando una caja marque «Sin stock» u «Otra versión», el pedido llega aquí.'));
+  }
+  function ranking() {
+    const m = new Map();
+    lista(o => o.ajuste && (o.ajuste.motivo || o.ajuste.origen)).forEach(o => {
+      const a = o.ajuste, k = a.producto_original || o.producto, r = m.get(k) || { p: k, ag: 0, le: 0 };
+      if (a.motivo === 'Sin stock' || a.motivo === 'Otra versión') r.ag++;
+      if (a.origen === 'Lechería') r.le++;
+      m.set(k, r);
+    });
+    return Array.from(m.values()).filter(r => r.ag + r.le > 0).sort((x, y) => (y.ag + y.le) - (x.ag + x.le));
+  }
+  function vApagar() {
+    const rk = ranking(), mx = Math.max.apply(null, [1].concat(rk.map(r => r.ag + r.le)));
+    const apag = Array.from(PE.values()).filter(x => x.apagado);
+    const filas = rk.map((r, i) => {
+      const e = PE.get(r.p), off = e && e.apagado;
+      return '<tr><td class="mono">' + (i + 1) + '</td><td><b>' + esc(r.p) + '</b></td><td class="num">' + r.ag + '</td><td class="num">' + r.le + '</td><td><div class="rb"><i style="width:' + ((r.ag + r.le) / mx * 100) + '%"></i></div></td><td>' + (off ? '<span class="pill p-cancelado">Apagado · ' + esc(e.por || '') + '</span>' : '<button type="button" class="btn sm" data-act="apagar" data-p="' + encodeURIComponent(r.p) + '">Marcar apagado en Cashea</button>') + '</td></tr>';
+    }).join('');
+    return '<div class="stats"><div class="stat"><b>' + rk.filter(r => !(PE.get(r.p) || {}).apagado).length + '</b><span>sugeridos para apagar</span></div><div class="stat"><b>' + apag.length + '</b><span>apagados en Cashea</span></div></div>'
+      + pm('Más agotados y desde Lechería', 'Se arma solo con lo que marcan las cajas', rk.length ? '<div class="table-scroll"><table class="mini"><thead><tr><th>#</th><th>Producto</th><th class="num">Agotado</th><th class="num">Lechería</th><th></th><th>Acción</th></tr></thead><tbody>' + filas + '</tbody></table></div><p class="note">El operador decide y lo apaga a mano en el portal de Cashea. Aquí queda registrado quién lo hizo y cuándo. En el sistema real, el ranking es de los últimos 30 días.</p>' : '<p class="muted">Todavía no hay productos agotados. Márcalos desde una caja con «Sin stock», «Otra versión» o «Está en otra tienda → Lechería».</p>')
+      + pm('Apagados en Cashea', 'Para volver a encender cuando llegue mercancía', apag.length ? apag.map(x => '<div class="row"><span class="code">⏻</span><span><b>' + esc(x.producto) + '</b><small>Apagado por ' + esc(x.por || '') + ' · ' + hora(x.cambiado_at) + '</small></span><button type="button" class="btn sm" data-act="encender" data-p="' + encodeURIComponent(x.producto) + '">Llegó mercancía · encendido</button></div>').join('') : '<p class="muted">Ningún producto apagado.</p>');
+  }
+  function tRes() {
+    const q = String(UI.tq || '').replace(/\D/g, '');
+    if (q.length < 4) return '<p class="muted">Escribe al menos 4 números de la cédula.</p>';
+    const r = lista(o => String((o.cliente || {}).cedula || '').replace(/\D/g, '').indexOf(q) > -1);
+    if (!r.length) return '<p class="muted">No hay pedidos con esa cédula.</p>';
+    return r.map(o => {
+      const c = esc(o.code);
+      if (o.st === 'tienda') return row(o, 'En SoyTechno ' + esc(o.tienda), o.tienda === UI.tienda) + (o.tienda === UI.tienda ? '<div class="actbar" style="border:0;padding:0"><button type="button" class="btn sm" data-act="entregar" data-c="' + c + '">Facturado y entregado</button></div>' : '');
+      if (o.st === 'tomado') return row(o, esc(o.tomado_por) + ' lo está atendiendo en caja');
+      if (['cliente', 'caja', 'despacho', 'ajuste', 'traslado', 'espera'].indexOf(o.st) > -1) return row(o, o.dept ? 'Hoy en ' + (o.st === 'despacho' ? 'Despacho' : 'Caja ' + esc(DN[o.dept])) : 'Sin entrega elegida') + '<div class="actbar" style="border:0;padding:0"><button type="button" class="btn sm" data-act="pasar" data-c="' + c + '">Pasar a mi tienda</button></div>';
+      return row(o);
+    }).join('');
+  }
+  function vTiendas() {
+    const mios = lista(o => o.st === 'tienda' && o.tienda === UI.tienda);
+    return '<div class="card"><label class="who-sel" for="mi-tienda">Esta tienda es<select id="mi-tienda">' + STORES.map(s => '<option' + (s === UI.tienda ? ' selected' : '') + '>' + s + '</option>').join('') + '</select></label>'
+      + '<div class="field"><label for="tq">Buscar pedido por cédula del cliente</label><input type="search" id="tq" inputmode="numeric" placeholder="Ej.: 12345678" value="' + esc(UI.tq) + '"></div><div id="tres" style="display:grid;gap:8px">' + tRes() + '</div>'
+      + '<p class="note">Al pasarlo a tu tienda, el pedido sale de su caja y queda bloqueado allí: nunca se factura dos veces.</p></div>'
+      + pm('Pedidos en SoyTechno ' + esc(UI.tienda), mios.length + '', mios.length ? mios.map(o => row(o) + '<div class="actbar" style="border:0;padding:0"><button type="button" class="btn sm" data-act="entregar" data-c="' + esc(o.code) + '">Facturado y entregado</button></div>').join('') : '<p class="muted">No hay pedidos pasados a esta tienda.</p>');
+  }
+
   /* ---------- pintar ---------- */
   function badge(v) {
     if (v.indexOf('caja-') === 0) { const d = v.slice(5); return cnt(o => o.dept === d && (o.st === 'caja' || o.st === 'tomado')); }
-    return { bandeja: cnt(o => o.st === 'cliente'), despacho: cnt(o => o.st === 'despacho'), asesores: cnt(o => o.st === 'noval' || o.st === 'standby'), admin: cnt(o => o.st === 'admin') }[v];
+    return { bandeja: cnt(o => o.st === 'cliente'), despacho: cnt(o => o.st === 'despacho'), asesores: cnt(o => o.st === 'noval' || o.st === 'standby'), admin: cnt(o => o.st === 'admin'), ajuste: cnt(o => ['ajuste', 'traslado', 'espera'].indexOf(o.st) > -1), apagar: ranking().filter(r => !(PE.get(r.p) || {}).apagado).length }[v];
   }
   function cuerpo() {
     if (vista.indexOf('caja-') === 0) return vCaja(vista.slice(5));
-    return { bandeja: vBandeja, despacho: vDespacho, asesores: vAsesores, admin: vAdmin, super: vSuper }[vista]();
+    return { bandeja: vBandeja, despacho: vDespacho, asesores: vAsesores, admin: vAdmin, super: vSuper, ajuste: vAjuste, apagar: vApagar, tiendas: vTiendas }[vista]();
   }
   function pintar() {
     const ae = document.activeElement;
@@ -189,6 +273,7 @@
       + '</nav><div class="live' + (UI.conectado ? '' : ' off') + '"><i></i><span>' + (UI.conectado ? 'En vivo' : 'Conectando…') + '</span></div></aside>'
       + '<main class="main"><header class="top"><div><span class="eyebrow">' + grupo + '</span><h1>' + titulo + '</h1></div><label class="who-sel" for="yo">Estás como<select id="yo">' + PERSONAS.map(n => '<option' + (n === yo ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></label></header><div class="body">' + cuerpo() + '</div></main>';
     const q = document.getElementById('qr');
+    if (window.QRCode) document.querySelectorAll('[data-qr]').forEach(el => { try { new window.QRCode(el, { text: el.getAttribute('data-qr'), width: 160, height: 160, colorDark: '#10162B', colorLight: '#FFFFFF' }); } catch (x) { /* sin QR */ } });
     if (q && window.QRCode && B.creado) { q.innerHTML = ''; try { new window.QRCode(q, { text: clienteURL(B.creado), width: 220, height: 220, colorDark: '#10162B', colorLight: '#FFFFFF' }); } catch (e) { q.textContent = 'No pude generar el QR; usa el enlace.'; } }
   }
   document.addEventListener('focusout', () => setTimeout(() => { if (pendiente) pintar(); }, 50));
@@ -244,14 +329,39 @@
       case 'ssel': UI.ssel = c; pintar(); break;
       case 'reset':
         if (!UI.reset) { UI.reset = true; pintar(); break; }
-        { const { error } = await sb.rpc('reiniciar_demo'); UI.reset = false; if (error) toast('Error: ' + error.message); else { P.clear(); B.creado = null; UI.ssel = null; pintar(); toast('Demo reiniciada'); } }
+        { const { error } = await sb.rpc('reiniciar_demo'); UI.reset = false; if (error) toast('Error: ' + error.message); else { P.clear(); PE.clear(); B.creado = null; UI.ssel = null; pintar(); toast('Demo reiniciada'); } }
         break;
       case 'reset-no': UI.reset = false; pintar(); break;
+      case 'sinstock': case 'version': { const m = a === 'sinstock' ? 'Sin stock' : 'Otra versión'; await upd(c, { st: 'ajuste', tomado_por: null, ajuste: Object.assign({}, P.get(c).ajuste, { motivo: m, solicitado_at: new Date().toISOString() }) }, 'Caja: ' + m.toLowerCase()); toast('Enviado a Ajuste · ' + m.toLowerCase()); break; }
+      case 'otra': UI.otra = c; pintar(); break;
+      case 'otracancel': UI.otra = null; pintar(); break;
+      case 'otraok': case 'jtras': {
+        const s = ($(a === 'otraok' ? '#c-store' : '#j-st-' + CSS.escape(c)) || {}).value || 'Lechería'; UI.otra = null;
+        await upd(c, { st: 'traslado', tomado_por: null, ajuste: Object.assign({}, P.get(c).ajuste, { motivo: (P.get(c).ajuste || {}).motivo || 'Otra tienda', origen: s, solicitado_at: new Date().toISOString() }) }, 'Traslado pedido desde ' + s);
+        toast(s === 'Lechería' ? 'Traslado desde Lechería · el cliente ve que llega el ' + etaLecheria() : 'Traslado interno desde ' + s + ' · mismo día · sin aviso al cliente'); break;
+      }
+      case 'jtab': UI.jtab = b.getAttribute('data-t'); pintar(); break;
+      case 'recibido': await upd(c, { st: 'caja', tomado_por: null, tag: 'Traslado recibido' }, 'Traslado recibido'); toast('Recibido · volvió a Caja ' + (DN[(P.get(c) || {}).dept] || '')); break;
+      case 'alt': {
+        const ta = $('#j-alt-' + CSS.escape(c)), alts = (ta ? ta.value : '').split('\n').map(x => x.trim()).filter(Boolean);
+        if (!alts.length) { toast('Escribe al menos una alternativa.'); break; }
+        await upd(c, { st: 'espera', ajuste: Object.assign({}, P.get(c).ajuste, { alternativas: alts }) }, 'Ajuste envió alternativas al cliente'); toast('El cliente ya ve las alternativas en su enlace'); break;
+      }
+      case 'jcancel': await upd(c, { st: 'cancelado', tomado_por: null }, 'Pedido cancelado'); toast('Pedido cancelado'); break;
+      case 'apagar': case 'encender': {
+        const p = decodeURIComponent(b.getAttribute('data-p')), fila = { producto: p, apagado: a === 'apagar', por: yo, cambiado_at: new Date().toISOString() };
+        const { error } = await sb.from('productos_estado').upsert(fila);
+        if (error) toast('Error: ' + error.message); else { PE.set(p, fila); pintar(); toast(a === 'apagar' ? 'Registrado: ' + yo + ' lo apagó en Cashea' : 'Registrado: encendido de nuevo en Cashea'); }
+        break;
+      }
+      case 'pasar': { const o = P.get(c); await upd(c, { st: 'tienda', tienda: UI.tienda, tomado_por: null }, 'Pasado a SoyTechno ' + UI.tienda + (o.dept ? ' (bloqueado en Caja ' + DN[o.dept] + ')' : '')); toast('Pasado a SoyTechno ' + UI.tienda); break; }
+      case 'entregar': await upd(c, { st: 'entregado' }, 'Facturado y entregado en SoyTechno ' + ((P.get(c) || {}).tienda || '')); toast('Entregado en tienda'); break;
     }
   });
   app.addEventListener('change', async e => {
     const t = e.target;
     if (t.id === 'yo') { yo = t.value; try { localStorage.setItem('soy-yo', yo); } catch (x) { /* nada */ } pintar(); return; }
+    if (t.id === 'mi-tienda') { UI.tienda = t.value; try { localStorage.setItem('soy-tienda', UI.tienda); } catch (x) { /* nada */ } pintar(); return; }
     if (t.matches('input[type=file][data-slot]')) {
       const f = t.files && t.files[0], code = t.getAttribute('data-c'), slot = t.getAttribute('data-slot');
       if (!f) return;
@@ -267,7 +377,7 @@
       UI.subiendo[code + slot] = false; pintar();
     }
   });
-  app.addEventListener('input', e => { if (e.target.id === 'b-txt') B.txt = e.target.value; });
+  app.addEventListener('input', e => { if (e.target.id === 'b-txt') B.txt = e.target.value; if (e.target.id === 'tq') { UI.tq = e.target.value; const r = $('#tres'); if (r) r.innerHTML = tRes(); } });
   window.addEventListener('hashchange', () => { const v = location.hash.slice(1); if (VISTAS.some(x => x[0] === v)) { vista = v; pintar(); } });
 
   if (!listo) {

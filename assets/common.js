@@ -102,8 +102,17 @@
   const DN = { Delivery: 'Delivery', Pickup: 'Pickup Chacao', MRW: 'MRW', Ruta: 'Ruta foránea' };
   const ESTADO = {
     cliente: 'Esperando al cliente', standby: 'Stand-by · asesor', caja: 'En cola de caja', tomado: 'En caja',
-    noval: 'Pago no validado', admin: 'Validación manual', despacho: 'Facturado · por despachar', despachado: 'Despachado'
+    noval: 'Pago no validado', admin: 'Validación manual', despacho: 'Facturado · por despachar', despachado: 'Despachado',
+    ajuste: 'En Ajuste', espera: 'Esperando al cliente', traslado: 'Traslado', tienda: 'En otra tienda', entregado: 'Entregado en tienda', cancelado: 'Cancelado'
   };
+  const STORES = ['City Market', 'Blvr. de Sabana Grande', 'SAMBIL Chacao', 'Chacao', 'CCCT', 'Los Ilustres', 'La Vega', 'Catia', 'Lechería'];
+  const MES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  /* Traslados de Lechería: lo pedido hasta el miércoles llega a Caracas el jueves o viernes de esa semana */
+  function etaLecheria(desde) {
+    const d = desde ? new Date(desde) : new Date(), add = [4, 3, 2, 1, 7, 6, 5][d.getDay()];
+    const th = new Date(d.getFullYear(), d.getMonth(), d.getDate() + add), fr = new Date(th.getFullYear(), th.getMonth(), th.getDate() + 1);
+    return th.getMonth() === fr.getMonth() ? 'jueves ' + th.getDate() + ' o viernes ' + fr.getDate() + ' de ' + MES[fr.getMonth()] : 'jueves ' + th.getDate() + ' de ' + MES[th.getMonth()] + ' o viernes ' + fr.getDate() + ' de ' + MES[fr.getMonth()];
+  }
   const pill = st => '<span class="pill p-' + esc(st) + '">' + esc(ESTADO[st] || st) + '</span>';
 
   function toast(msg) {
@@ -129,5 +138,5 @@
     });
   }
 
-  g.SOY = { sb, listo, esc, money, norm, num, hoyISO, fechaVE, hora, parseCashea, ZONA, CIUDADES, METODOS, opciones, oficinas, DEPTS, DN, ESTADO, pill, toast, comprimir };
+  g.SOY = { sb, listo, esc, money, norm, num, hoyISO, fechaVE, hora, parseCashea, ZONA, CIUDADES, METODOS, opciones, oficinas, DEPTS, DN, ESTADO, pill, toast, comprimir, STORES, etaLecheria };
 })(window);

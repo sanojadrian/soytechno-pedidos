@@ -1,7 +1,7 @@
 /* Soytechno · Pedidos Cashea — página del cliente */
 (function () {
   'use strict';
-  const { sb, listo, esc, money, hoyISO, CIUDADES, METODOS, opciones, oficinas, DN, toast } = window.SOY;
+  const { sb, listo, esc, money, hoyISO, CIUDADES, METODOS, opciones, oficinas, DN, toast, etaLecheria } = window.SOY;
   const $ = s => document.querySelector(s);
   const root = $('#cl');
   const code = new URLSearchParams(location.search).get('c') || '';
@@ -53,11 +53,16 @@
   function seguimiento() {
     const st = O.st, e = O.entrega || {};
     const pasos = [['Pedido recibido', 'Cashea nos confirmó tu compra'], ['Entrega elegida', e.metodo ? esc(e.metodo) + (e.detalle ? ' · ' + esc(e.detalle) : '') : ''], ['Verificando y facturando', 'Nuestra caja revisa tu pedido'], ['Despachado', '']];
-    const orden = { cliente: 0, standby: 0, caja: 2, tomado: 2, noval: 2, admin: 2, despacho: 2, despachado: 3 };
+    const orden = { cliente: 0, standby: 0, caja: 2, tomado: 2, noval: 2, admin: 2, despacho: 2, despachado: 3, ajuste: 2, traslado: 2, espera: 2, tienda: 2, entregado: 3 };
+    const fin = st === 'despachado' || st === 'entregado';
+    if (st === 'entregado') pasos[3][0] = 'Entregado';
     let ahora = orden[st] != null ? orden[st] : 0;
     if (st === 'despacho') pasos[2][1] = 'Facturado · preparando el envío';
     let nota = '';
     if (st === 'noval' || st === 'admin') nota = '<div class="info">Estamos revisando tu pago. Si hace falta algún dato, te escribimos por WhatsApp.</div>';
+    if (st === 'traslado' && (O.ajuste || {}).origen === 'Lechería') nota = '<div class="info">📦 Tu equipo viene de nuestra tienda de Lechería. Llega a Caracas el ' + etaLecheria(O.ajuste.solicitado_at) + '.</div>';
+    if (st === 'tienda') nota = '<div class="info">🏬 Tu pedido te espera en SoyTechno ' + esc(O.tienda || '') + '.</div>';
+    if (st === 'entregado') nota = '<div class="info">✅ Entregado en SoyTechno ' + esc(O.tienda || '') + '. ¡Gracias por tu compra!</div>';
     if (st === 'despachado') {
       if (e.metodo === 'MRW') nota = '<div class="info">📦 Tu pedido salió por MRW' + (e.guia ? ' con la guía <b>' + esc(e.guia) + '</b>' : '') + '. La guía también te llega por correo. El envío tarda de 2 a 3 días hábiles.</div>';
       else if (e.metodo === 'Delivery') nota = '<div class="info">🛵 Tu delivery va en camino. Te llegará un correo con los datos de tu rutero.</div>';
@@ -65,7 +70,7 @@
       else nota = '<div class="info">🚚 Tu pedido salió en la ruta foránea hacia ' + esc(e.ciudad || '') + '.</div>';
     } else if (e.metodo === 'MRW') nota = nota || '<div class="info">Cuando despachemos, la guía de MRW te llegará por correo. El envío tarda de 2 a 3 días hábiles.</div>';
     else if (e.metodo === 'Delivery') nota = nota || '<div class="info">Cuando despachemos, te llegará un correo con los datos de tu rutero.</div>';
-    return '<p>¡Gracias, ' + esc(nombre1()) + '! Así va tu pedido. Esta pantalla se actualiza sola.</p><ol class="steps">' + pasos.map((p, i) => '<li class="' + (i < ahora || (i === ahora && st === 'despachado') ? 'done' : i === ahora ? 'now' : '') + '"><span class="d">' + (i < ahora || st === 'despachado' && i === ahora ? '✓' : i + 1) + '</span><span><b>' + p[0] + '</b><small>' + p[1] + '</small></span></li>').join('') + '</ol>' + nota;
+    return '<p>¡Gracias, ' + esc(nombre1()) + '! Así va tu pedido. Esta pantalla se actualiza sola.</p><ol class="steps">' + pasos.map((p, i) => '<li class="' + (i < ahora || (i === ahora && fin) ? 'done' : i === ahora ? 'now' : '') + '"><span class="d">' + (i < ahora || fin && i === ahora ? '✓' : i + 1) + '</span><span><b>' + p[0] + '</b><small>' + p[1] + '</small></span></li>').join('') + '</ol>' + nota;
   }
 
   function pintar(foco) {
@@ -74,6 +79,9 @@
     let cuerpo;
     if (O.st === 'cliente') cuerpo = formulario();
     else if (O.st === 'standby') cuerpo = '<div class="info">Tu asesor te contactará por WhatsApp para confirmar los detalles de tu compra.</div>';
+    else if (O.st === 'espera') cuerpo = '<p>Hola ' + esc(nombre1()) + ' 👋 El producto que compraste no está disponible. Elige una opción:</p><div class="opts">' + ((O.ajuste || {}).alternativas || []).map((a, i) => '<button type="button" class="opt" data-alt="' + i + '"><span><b>' + esc(a) + '</b></span></button>').join('') + '<button type="button" class="opt" data-alt="cancelar"><span><b>Cancelar el pedido</b></span></button></div>';
+    else if (O.st === 'traslado' && (O.ajuste || {}).origen === 'Lechería' && !(O.ajuste || {}).respuesta) cuerpo = '<p>Hola ' + esc(nombre1()) + ' 👋 Tu equipo está en nuestra tienda de Lechería. Llega a Caracas el <b>' + etaLecheria(O.ajuste.solicitado_at) + '</b>. ¿Qué prefieres?</p><div class="opts"><button type="button" class="opt" data-lech="esperar"><span><b>Esperar</b><small>Te avisamos cuando llegue</small></span></button><button type="button" class="opt" data-lech="otro"><span><b>Cambiar por otro modelo</b><small>Un asesor te escribe</small></span></button><button type="button" class="opt" data-lech="cancelar"><span><b>Cancelar el pedido</b></span></button></div>';
+    else if (O.st === 'cancelado') cuerpo = '<div class="info"><b>Tu pedido fue cancelado.</b><br>Si pagaste inicial, Administración te contactará para el reembolso.</div>';
     else cuerpo = seguimiento();
     $('#cl-body').innerHTML = resumen + cuerpo;
     if (foco) { const el = document.getElementById(foco); if (el) el.focus(); }
@@ -85,6 +93,26 @@
     O = data; pintar();
   }
 
+  async function responder(patch, evento) {
+    const hist = (O.historial || []).concat([{ t: new Date().toISOString(), e: evento + ' · cliente' }]);
+    const { data, error } = await sb.from('pedidos').update(Object.assign({}, patch, { updated_at: new Date().toISOString(), historial: hist })).eq('code', O.code).select().single();
+    if (error) { toast('No pudimos guardar tu respuesta. Intenta de nuevo.'); return; }
+    O = data; pintar(); toast('¡Listo! Recibimos tu respuesta.');
+  }
+  root.addEventListener('click', e => {
+    const b = e.target.closest('[data-alt],[data-lech]'); if (!b || !O) return;
+    const aj = Object.assign({}, O.ajuste || {});
+    if (b.hasAttribute('data-alt')) {
+      const v = b.getAttribute('data-alt');
+      if (v === 'cancelar') return responder({ st: 'cancelado', ajuste: Object.assign(aj, { respuesta: 'Cancelar' }) }, 'Canceló el pedido');
+      const alt = (aj.alternativas || [])[+v]; if (!alt) return;
+      return responder({ st: 'caja', tomado_por: null, producto: alt, tag: 'El cliente eligió otra opción', ajuste: Object.assign(aj, { respuesta: alt, producto_original: O.producto }) }, 'Eligió: ' + alt);
+    }
+    const v = b.getAttribute('data-lech');
+    if (v === 'esperar') return responder({ ajuste: Object.assign(aj, { respuesta: 'Esperar' }) }, 'Decidió esperar el traslado');
+    if (v === 'otro') return responder({ st: 'standby', tag: 'Cliente quiere otro modelo', ajuste: Object.assign(aj, { respuesta: 'Otro modelo' }) }, 'Pidió otro modelo');
+    if (v === 'cancelar') return responder({ st: 'cancelado', ajuste: Object.assign(aj, { respuesta: 'Cancelar' }) }, 'Canceló el pedido');
+  });
   root.addEventListener('change', e => {
     const t = e.target;
     if (t.id === 'ciudad') { F.ciudad = t.value; if (!opciones(F.ciudad).includes(F.metodo)) F.metodo = ''; F.oficina = ''; F.q = ''; pintar(); }

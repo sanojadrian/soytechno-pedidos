@@ -98,5 +98,29 @@ create policy demo_despacho_insert on storage.objects for insert to anon, authen
 drop policy if exists demo_despacho_read on storage.objects;
 create policy demo_despacho_read on storage.objects for select to anon, authenticated using (bucket_id = 'despacho');
 
+-- Ajuste, tiendas y productos a apagar
+alter table public.pedidos add column if not exists ajuste jsonb not null default '{}'::jsonb; -- motivo, origen, solicitado_at, alternativas, respuesta
+alter table public.pedidos add column if not exists tienda text;
+
+create table if not exists public.productos_estado (
+  producto    text primary key,
+  apagado     boolean not null default false,
+  por         text,
+  cambiado_at timestamptz not null default now()
+);
+alter table public.productos_estado enable row level security;
+drop policy if exists demo_pe_all on public.productos_estado;
+create policy demo_pe_all on public.productos_estado for all to anon, authenticated using (true) with check (true);
+do $$ begin
+  alter publication supabase_realtime add table public.productos_estado;
+exception when duplicate_object then null; end $$;
+
+create or replace function public.reiniciar_demo()
+returns void language sql security definer set search_path = public as $$
+  delete from public.referencias where true;
+  delete from public.pedidos where true;
+  delete from public.productos_estado where true;
+$$;
+
 -- Que la API vea las tablas nuevas de inmediato
 notify pgrst, 'reload schema';

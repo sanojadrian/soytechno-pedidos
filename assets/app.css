@@ -48,6 +48,15 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
 .p-standby{background:var(--violet-soft);color:var(--violet)}
 .p-despacho{background:var(--ok-soft);color:var(--ok)}
 .p-despachado{background:var(--ok-soft);color:var(--ok)}
+.p-ajuste{background:var(--bad-soft);color:var(--bad)}
+.p-espera{background:var(--signal-soft);color:var(--ink)}
+.p-traslado{background:var(--violet-soft);color:var(--violet)}
+.p-tienda{background:var(--violet-soft);color:var(--violet)}
+.p-entregado{background:var(--ok-soft);color:var(--ok)}
+.p-cancelado{background:var(--bad-soft);color:var(--bad)}
+.rb{height:10px;border-radius:5px;background:var(--surface-2);overflow:hidden;min-width:80px}
+.rb i{display:block;height:100%;background:var(--bad);border-radius:5px}
+button.opt{width:100%;text-align:left;font:inherit;color:inherit}
 .row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;border-radius:10px;background:var(--bg);font-size:13px}
 .row .code{font:600 12px var(--f-mono)}
 .row b{display:block;font-weight:600}

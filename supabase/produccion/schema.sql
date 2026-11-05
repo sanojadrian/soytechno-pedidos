@@ -60,6 +60,12 @@ create index if not exists pedidos_st_idx       on public.pedidos (st);
 create index if not exists pedidos_cola_idx     on public.pedidos (dept, st, created_at);
 create index if not exists pedidos_creado_idx   on public.pedidos (created_at desc);
 create index if not exists pedidos_cedula_idx   on public.pedidos ((cliente->>'cedula'));
+create index if not exists pedidos_actualizado_idx on public.pedidos (updated_at desc);
+-- Búsquedas por parte de la cédula, el nombre o el número (Tiendas y Supervisión)
+create extension if not exists pg_trgm with schema extensions;
+create index if not exists pedidos_cedula_trgm  on public.pedidos using gin ((cliente->>'cedula') extensions.gin_trgm_ops);
+create index if not exists pedidos_nombre_trgm  on public.pedidos using gin ((cliente->>'nombre') extensions.gin_trgm_ops);
+create index if not exists pedidos_code_trgm    on public.pedidos using gin (code extensions.gin_trgm_ops);
 
 create table if not exists public.eventos (
   id          bigserial primary key,
@@ -70,6 +76,7 @@ create table if not exists public.eventos (
   por_nombre  text not null default 'Sistema'
 );
 create index if not exists eventos_code_idx on public.eventos (code, t);
+create index if not exists eventos_t_idx on public.eventos (t);
 
 create table if not exists public.referencias (
   banco       text not null,
@@ -401,7 +408,11 @@ begin
       est := public.estado_referencia(coalesce(o.pago ->> 'banco', ''), ref, p_code);
       if est = 'duplicada' then perform public.fallar('Esa referencia ya está registrada en otro pedido.'); end if;
       delete from public.referencias where code = p_code;
-      insert into public.referencias (banco, referencia, code) values (coalesce(o.pago ->> 'banco', ''), ref, p_code);
+      insert into public.referencias (banco, referencia, code) values (coalesce(o.pago ->> 'banco', ''), ref, p_code)
+      on conflict (banco, referencia) do nothing;
+      if not exists (select 1 from public.referencias where banco = coalesce(o.pago ->> 'banco', '') and referencia = ref and code = p_code) then
+        perform public.fallar('Esa referencia ya está registrada en otro pedido.');
+      end if;
     end if;
     update public.pedidos set st = 'caja',
       pago = coalesce(o.pago, '{}'::jsonb) || case when ref <> '' then jsonb_build_object('referencia', ref) else '{}'::jsonb end,
@@ -603,7 +614,12 @@ begin
     v_est := public.estado_referencia(v_ban, v_ref, o.code);
     if v_est = 'duplicada' then return 'duplicada'; end if;
     delete from public.referencias where code = o.code;
-    insert into public.referencias (banco, referencia, code) values (v_ban, v_ref, o.code);
+    -- Si otro cliente registra la misma referencia en el mismo instante, gana el primero
+    insert into public.referencias (banco, referencia, code) values (v_ban, v_ref, o.code)
+    on conflict (banco, referencia) do nothing;
+    if not exists (select 1 from public.referencias where banco = v_ban and referencia = v_ref and code = o.code) then
+      return 'duplicada';
+    end if;
   end if;
 
   update public.pedidos set
@@ -809,28 +825,28 @@ grant usage, select on all sequences in schema public to service_role;
 
 drop policy if exists perfiles_ver on public.perfiles;
 create policy perfiles_ver on public.perfiles for select to authenticated
-  using (id = auth.uid() or public.mi_rol() = 'supervisor');
+  using (id = (select auth.uid()) or (select public.mi_rol()) = 'supervisor');
 
 drop policy if exists pedidos_ver on public.pedidos;
-create policy pedidos_ver on public.pedidos for select to authenticated using (public.es_personal());
+create policy pedidos_ver on public.pedidos for select to authenticated using ((select public.es_personal()));
 
 drop policy if exists eventos_ver on public.eventos;
-create policy eventos_ver on public.eventos for select to authenticated using (public.es_personal());
+create policy eventos_ver on public.eventos for select to authenticated using ((select public.es_personal()));
 
 drop policy if exists referencias_ver on public.referencias;
-create policy referencias_ver on public.referencias for select to authenticated using (public.tiene_rol('cajero', 'asesor', 'admin'));
+create policy referencias_ver on public.referencias for select to authenticated using ((select public.tiene_rol('cajero', 'asesor', 'admin')));
 
 drop policy if exists correos_ver on public.correos;
-create policy correos_ver on public.correos for select to authenticated using (public.tiene_rol('operador'));
+create policy correos_ver on public.correos for select to authenticated using ((select public.tiene_rol('operador')));
 
 drop policy if exists mensajes_ver on public.mensajes;
-create policy mensajes_ver on public.mensajes for select to authenticated using (public.es_personal());
+create policy mensajes_ver on public.mensajes for select to authenticated using ((select public.es_personal()));
 
 drop policy if exists alertas_ver on public.alertas;
-create policy alertas_ver on public.alertas for select to authenticated using (public.tiene_rol('operador'));
+create policy alertas_ver on public.alertas for select to authenticated using ((select public.tiene_rol('operador')));
 
 drop policy if exists productos_ver on public.productos_estado;
-create policy productos_ver on public.productos_estado for select to authenticated using (public.es_personal());
+create policy productos_ver on public.productos_estado for select to authenticated using ((select public.es_personal()));
 
 -- Funciones: nadie las ejecuta salvo las que se habilitan aquí.
 revoke execute on all functions in schema public from public, anon, authenticated;
@@ -865,9 +881,9 @@ on conflict (id) do update set public = false;
 
 drop policy if exists despacho_subir on storage.objects;
 create policy despacho_subir on storage.objects for insert to authenticated
-  with check (bucket_id = 'despacho' and public.tiene_rol('despacho'));
+  with check (bucket_id = 'despacho' and (select public.tiene_rol('despacho')));
 drop policy if exists despacho_ver on storage.objects;
 create policy despacho_ver on storage.objects for select to authenticated
-  using (bucket_id = 'despacho' and public.es_personal());
+  using (bucket_id = 'despacho' and (select public.es_personal()));
 
 notify pgrst, 'reload schema';

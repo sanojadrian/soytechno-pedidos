@@ -73,14 +73,19 @@
     ]);
     X.det = o.data ? { o: o.data, ev: ev.data || [], ms: ms.data || [] } : null; pintar();
   }
+  // Con muchos pedidos por minuto, se redibuja como máximo unas 4 veces por segundo
+  let pintarPend = null;
+  const pintarLuego = () => { if (!pintarPend) pintarPend = setTimeout(() => { pintarPend = null; pintar(); }, 250); };
   function escuchar() {
+    // Un cajero solo recibe los cambios de su caja: menos tráfico y menos costo de tiempo real
+    const filtro = yo.rol === 'cajero' && yo.dept ? { filter: 'dept=eq.' + yo.dept } : {};
     sb.channel('panel')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos' }, ev => {
+      .on('postgres_changes', Object.assign({ event: '*', schema: 'public', table: 'pedidos' }, filtro), ev => {
         if (ev.eventType === 'DELETE') P.delete(ev.old.code); else P.set(ev.new.code, ev.new);
-        if (X.det && ev.new && X.det.o.code === ev.new.code) cargarDetalle(ev.new.code); else pintar();
+        if (X.det && ev.new && X.det.o.code === ev.new.code) cargarDetalle(ev.new.code); else pintarLuego();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'alertas' }, () => cargarExtras())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'productos_estado' }, ev => { if (ev.new && ev.new.producto) PE.set(ev.new.producto, ev.new); pintar(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'productos_estado' }, ev => { if (ev.new && ev.new.producto) PE.set(ev.new.producto, ev.new); pintarLuego(); })
       .subscribe(st => { const antes = UI.conectado; UI.conectado = st === 'SUBSCRIBED'; if (UI.conectado && !antes) { cargar(); cargarExtras(); } const l = $('.live'); if (l) { l.classList.toggle('off', !UI.conectado); l.lastChild.textContent = UI.conectado ? 'En vivo' : 'Reconectando…'; } });
   }
   const empujarAvisos = () => sb.functions.invoke('procesar-mensajes', { body: {} }).catch(() => {});

@@ -10,7 +10,10 @@
 //   PROCESO_CLAVE           clave del cron y de recibir-correo (obligatoria)
 //   CLIENTE_URL             dirección de la página del cliente, terminada en "cliente.html" (obligatoria)
 //   CALLBELL_CHANNEL_UUID   canal de WhatsApp, si la cuenta tiene más de uno
-//   CALLBELL_TEMPLATE_UUID  plantilla aprobada para el primer mensaje (recomendada)
+//   CALLBELL_PLANTILLAS     plantillas aprobadas por tipo de aviso, en JSON (recomendada). Ejemplo:
+//                           {"enlace":"uuid1","lecheria":"uuid2","alternativas":"uuid3","despachado":"uuid4","retraso":"uuid5"}
+//                           WhatsApp solo deja escribir sin plantilla si el cliente escribió en las últimas 24 h.
+//   CALLBELL_TEMPLATE_UUID  (versión anterior) plantilla solo para el primer mensaje; se sigue aceptando
 //   SOLO_TELEFONOS          PILOTO: si existe, solo se envía a estos números (separados por coma)
 //   SERVICIO_CLAVE          la clave secreta del proyecto, solo si SUPABASE_SERVICE_ROLE_KEY no existe
 // Ajuste: Enforce JWT verification = APAGADO (valida la clave o el usuario por dentro).
@@ -107,6 +110,20 @@ export function texto(tipo: string, o: any, link: string): string {
   }
   return '';
 }
+/** Plantilla aprobada para cada tipo de aviso (CALLBELL_PLANTILLAS en JSON, o la antigua solo para el enlace) */
+export function plantillaDe(tipo: string): string {
+  let mapa: Record<string, string> = {};
+  try { mapa = JSON.parse(env('CALLBELL_PLANTILLAS') || '{}'); } catch { mapa = {}; }
+  return mapa[tipo] || (tipo === 'enlace' ? env('CALLBELL_TEMPLATE_UUID') : '') || '';
+}
+/** Variables de cada plantilla, en el orden {{1}}, {{2}}, {{3}} (ver INSTALACION.md) */
+export function valoresPlantilla(tipo: string, o: any, link: string): string[] {
+  const n = nombre1(o) || 'cliente', c = String(o.code);
+  if (tipo === 'lecheria') return [n, c, etaLecheria(o?.ajuste?.solicitado_at), link];
+  if (tipo === 'despachado') { const e = o.entrega || {}; return [n, c, e.metodo === 'MRW' && e.guia ? 'por MRW con la guía ' + e.guia : String(e.metodo || 'hacia ti').startsWith('Pickup') ? 'listo para retirar en Tienda Chacao' : 'con ' + (e.metodo || 'nuestra ruta'), link]; }
+  return [n, c, link];
+}
+
 export function cuerpoCallbell(m: any): { to: string; body: Record<string, unknown> } | { omitir: string } {
   const o = m.pedido;
   const to = normalizar(m.tipo === 'alerta' ? m.para : o?.cliente?.telefono);
@@ -119,10 +136,11 @@ export function cuerpoCallbell(m: any): { to: string; body: Record<string, unkno
   if (!msg) return { omitir: 'Tipo de mensaje desconocido.' };
   const body: Record<string, unknown> = { to, from: 'whatsapp', type: 'text', content: { text: msg } };
   if (env('CALLBELL_CHANNEL_UUID')) body.channel_uuid = env('CALLBELL_CHANNEL_UUID');
-  if (m.tipo === 'enlace' && env('CALLBELL_TEMPLATE_UUID')) {
-    body.template_uuid = env('CALLBELL_TEMPLATE_UUID');
+  const plantilla = plantillaDe(m.tipo);
+  if (plantilla && m.tipo !== 'alerta') {
+    body.template_uuid = plantilla;
     body.optin_contact = true;
-    body.template_values = [nombre1(o) || 'cliente', String(o.code), link];
+    body.template_values = valoresPlantilla(m.tipo, o, link);
   }
   return { to, body };
 }

@@ -80,7 +80,7 @@ Para **cada una** de estas funciones:
 | `CLIENTE_URL` | La dirección de la página del cliente, terminada en `cliente.html` (ver paso 7) |
 | `SOLO_TELEFONOS` | **Durante el piloto**: tus números de prueba separados por coma. Bórralo para operar con todos los clientes. |
 | `CALLBELL_CHANNEL_UUID` | Opcional: solo si Callbell tiene más de un canal de WhatsApp |
-| `CALLBELL_TEMPLATE_UUID` | Recomendado: el identificador de la plantilla aprobada (paso 9) |
+| `CALLBELL_PLANTILLAS` | Recomendado: los identificadores de las plantillas aprobadas (paso 9), así: `{"enlace":"…","lecheria":"…","alternativas":"…","despachado":"…","retraso":"…"}` |
 
 Si al probar ves el error *«No tienes permiso»* o *401* en las funciones, agrega también
 `SERVICIO_CLAVE` con la clave **secret** de **Project Settings → API Keys**.
@@ -119,15 +119,22 @@ Lo hace alguien con acceso a esa cuenta de Gmail; la contraseña no se comparte 
 
 Si Soytechno usa **Outlook** en vez de Gmail, avísame y preparo la alternativa.
 
-## Paso 9 · Plantilla de WhatsApp en Callbell
+## Paso 9 · Plantillas de WhatsApp en Callbell
 
-WhatsApp solo deja escribir primero a un cliente con una **plantilla aprobada por Meta**. Créala en Callbell
-(categoría *Utilidad*) con este texto y envíala a aprobación:
+WhatsApp solo deja escribirle a un cliente sin plantilla si él escribió en las últimas 24 horas.
+Como los avisos de Lechería, alternativas o despacho pueden salir días después, conviene aprobar
+**una plantilla por cada aviso**. Créalas en Callbell (categoría *Utilidad*) y envíalas a aprobación:
 
-> ¡Hola {{1}}! Recibimos tu pedido Cashea #{{2}}. Elige cómo quieres recibirlo y reporta tu pago aquí: {{3}}
+| Aviso | Texto de la plantilla |
+|---|---|
+| `enlace` | ¡Hola {{1}}! Recibimos tu pedido Cashea #{{2}}. Elige cómo quieres recibirlo y reporta tu pago aquí: {{3}} |
+| `lecheria` | Hola {{1}}, tu equipo del pedido #{{2}} está en nuestra tienda de Lechería y llega a Caracas el {{3}}. Dinos si prefieres esperar o cambiarlo aquí: {{4}} |
+| `alternativas` | Hola {{1}}, el producto de tu pedido #{{2}} no está disponible. Te preparamos otras opciones; elige aquí: {{3}} |
+| `despachado` | ¡Listo, {{1}}! Tu pedido #{{2}} ya salió {{3}}. Puedes ver el detalle aquí: {{4}} |
+| `retraso` | Hola {{1}}, tu pedido #{{2}} está tardando un poco más porque lo traemos de otra tienda. Te avisamos apenas salga: {{3}} |
 
-Cuando esté aprobada, copia su identificador al secreto `CALLBELL_TEMPLATE_UUID`.
-Los demás avisos (Lechería, alternativas, despacho) llegan cuando la conversación ya está abierta.
+Cuando estén aprobadas, copia sus identificadores al secreto `CALLBELL_PLANTILLAS` (paso 5).
+Mientras no estén, el sistema manda el mismo texto sin plantilla, y solo llega si el cliente escribió en las últimas 24 horas.
 
 ## Paso 10 · Prueba piloto
 

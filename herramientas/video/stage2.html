@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:100%;height:100%;overflow:hidden}
+body{background:radial-gradient(circle at 75% 20%,#22357F 0%,#0F1A47 45%,#0A1030 100%);font-family:'IBM Plex Sans',Arial,sans-serif;color:#F5F3EE;position:relative}
+body::before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:64px 64px}
+#logo{position:absolute;height:auto}
+#chip{position:absolute;display:flex;align-items:center;gap:14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);border-radius:999px;padding:10px 22px 10px 10px;font-weight:600;backdrop-filter:blur(6px)}
+#chip b{display:grid;place-items:center;background:#F5B53F;color:#10162B;border-radius:999px;font:800 22px 'Archivo',sans-serif}
+#side{position:absolute;display:none;flex-direction:column;gap:22px}
+#side h1{font:800 64px/1.02 'Archivo',sans-serif;font-stretch:110%;letter-spacing:-1px}
+#side p{font-size:28px;line-height:1.45;color:#C7CFEA}
+.dev{position:absolute;transition:none}
+.lap{background:#05081A;border-radius:22px;padding:14px;box-shadow:0 40px 90px rgba(0,0,0,.55),0 0 0 2px rgba(255,255,255,.08)}
+.lap .scr{border-radius:10px;overflow:hidden;background:#fff;position:relative}
+.lap::after{content:"";position:absolute;left:50%;transform:translateX(-50%);bottom:-26px;width:46%;height:16px;border-radius:0 0 18px 18px;background:#1B2244}
+.pho{background:#05081A;border-radius:58px;padding:13px;box-shadow:0 40px 90px rgba(0,0,0,.6),0 0 0 2px rgba(255,255,255,.1)}
+.pho .scr{border-radius:46px;overflow:hidden;background:#fff;position:relative}
+iframe{border:0;display:block;transform-origin:0 0;background:#F2F3EF}
+#cur{pointer-events:none;position:absolute;width:44px;height:44px;left:0;top:0;z-index:20;filter:drop-shadow(0 4px 8px rgba(0,0,0,.45));transform:translate(-200px,-200px)}
+.rp{pointer-events:none;position:absolute;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;background:rgba(245,181,63,.45);box-shadow:0 0 0 3px rgba(245,181,63,.9);z-index:19;animation:rp .42s ease-out forwards}
+@keyframes rp{0%{transform:scale(.55);opacity:.95}100%{transform:scale(1.05);opacity:0}}
+#chip.anim{animation:chipin .55s cubic-bezier(.2,.8,.2,1)}
+@keyframes chipin{from{opacity:0;transform:translateX(-30px)}to{opacity:1;transform:none}}
+.cover{position:absolute;inset:0;background:#F2F3EF;z-index:5;opacity:0;pointer-events:none;transition:opacity .25s}
+.cover.on{opacity:1}
+#side.anim h1,#side.anim p{animation:chipin .6s cubic-bezier(.2,.8,.2,1) both}#side.anim p{animation-delay:.15s}
+#rip{pointer-events:none;position:absolute;width:74px;height:74px;border-radius:50%;border:5px solid #F5B53F;background:rgba(245,181,63,.25);left:-200px;top:-200px;z-index:19;display:none}
+.hide{display:none!important}
+.dim{opacity:.25;filter:grayscale(.6)}
+</style></head><body>
+<img id="logo" src="/repo-soytechno/assets/logo-white.png" alt="">
+<div id="chip"><b id="cn">1</b><span id="ct">Paso</span></div>
+<div id="side"><h1 id="sh"></h1><p id="sp"></p></div>
+<div class="dev lap" id="lap"><div class="scr" id="lscr"><iframe id="panel" name="panel"></iframe></div></div>
+<div class="dev pho" id="pho"><div class="scr" id="pscr"><iframe id="cliente" name="cliente"></iframe><div class="cover" id="pcov"></div></div></div>
+<iframe id="cardf" name="cardf" style="position:absolute;inset:0;width:100%;height:100%;border:0;display:none;z-index:30"></iframe>
+<svg id="cur" viewBox="0 0 24 24"><path d="M4 2l15 10.5-6.6 1.3 3.9 7.4-3 1.6-3.9-7.5L4 20z" fill="#fff" stroke="#10162B" stroke-width="1.6" stroke-linejoin="round"/></svg>
+<div id="rip"></div>
+<script>
+const P=new URLSearchParams(location.search), V=P.get('layout')==='v';
+const W=V?1080:1920, H=V?1920:1080;
+document.body.style.width=W+'px';document.body.style.height=H+'px';
+const $=id=>document.getElementById(id);
+function box(el,x,y){el.style.left=x+'px';el.style.top=y+'px'}
+// iframe CSS sizes
+const PANEL=V?{w:860,h:1240}:{w:1440,h:900};
+const PHONE={w:390,h:844};
+$('panel').style.width=PANEL.w+'px';$('panel').style.height=PANEL.h+'px';
+$('cliente').style.width=PHONE.w+'px';$('cliente').style.height=PHONE.h+'px';
+function place(id,scr,ifr,s,x,y,ih){ // s=scale, ih = visible iframe height (css)
+  const f=$(ifr),sc=$(scr),d=$(id);
+  f.style.transform='scale('+s+')';
+  const w=(id==='lap'?PANEL.w:PHONE.w)*s, h=(ih||(id==='lap'?PANEL.h:PHONE.h))*s;
+  sc.style.width=w+'px';sc.style.height=h+'px';
+  if(id==='lap'&&ih){f.style.height=ih+'px'}
+  box(d,x,y);
+}
+window.stage={
+  set(o){
+    const ch=$('chip');if($('ct').textContent!==(o.chip||'')){ch.classList.remove('anim');void ch.offsetWidth;ch.classList.add('anim');}
+    $('cn').textContent=o.n||'';$('ct').textContent=o.chip||'';
+    const sd=$('side');sd.classList.remove('anim');void sd.offsetWidth;sd.classList.add('anim');
+    $('cardf').style.display=o.mode==='card'?'block':'none';
+    $('lap').classList.toggle('hide',o.mode==='phone'||o.mode==='card');
+    $('pho').classList.toggle('hide',o.mode==='laptop'||o.mode==='card');
+    $('side').style.display=o.mode==='phone'?'flex':'none';
+    $('sh').textContent=o.h||'';$('sp').textContent=o.p||'';
+    $('lap').classList.remove('dim');$('pho').classList.remove('dim');
+    if(!V){
+      $('logo').style.width='230px';box($('logo'),70,52);
+      box($('chip'),360,40);$('cn').style.width=$('cn').style.height='44px';$('chip').style.fontSize='26px';
+      if(o.mode==='both'){place('lap','lscr','panel',0.86,70,140,900);place('pho','pscr','cliente',0.96,1470,118)}
+      if(o.mode==='laptop'){place('lap','lscr','panel',0.92,(1920-1440*0.92)/2-14,128,900)}
+      if(o.mode==='phone'){place('pho','pscr','cliente',1.04,1240,90);box($('side'),130,330);$('side').style.width='960px'}
+    }else{
+      $('logo').style.width='260px';box($('logo'),60,70);
+      box($('chip'),60,150);$('cn').style.width=$('cn').style.height='48px';$('chip').style.fontSize='30px';
+      if(o.mode==='both'){place('lap','lscr','panel',1.13,52,240,700);place('pho','pscr','cliente',0.74,(1080-390*0.74)/2-13,1085)}
+      if(o.mode==='laptop'){place('lap','lscr','panel',1.13,52,250,1240)}
+      if(o.mode==='phone'){place('pho','pscr','cliente',1.5,(1080-390*1.5)/2-13,270);box($('side'),60,1585);$('side').style.width='960px';$('side').style.display='none'}
+    }
+  },
+  move(x,y,ms){return new Promise(res=>{const c=$('cur');const x0=+(c.dataset.x||W*0.6),y0=+(c.dataset.y||H*0.7);const t0=performance.now();ms=ms||650;
+    const st=t=>{const k=Math.min(1,(t-t0)/ms),e=k<.5?4*k*k*k:1-Math.pow(-2*k+2,3)/2;const x1=x0+(x-x0)*e,y1=y0+(y-y0)*e;c.style.transform='translate('+(x1-6)+'px,'+(y1-4)+'px)';if(k<1)requestAnimationFrame(st);else{c.dataset.x=x;c.dataset.y=y;requestAnimationFrame(()=>requestAnimationFrame(res))}};requestAnimationFrame(st)})},
+  tap(){const c=$('cur');const r=document.createElement('div');r.className='rp';r.style.left=c.dataset.x+'px';r.style.top=c.dataset.y+'px';document.body.appendChild(r);setTimeout(()=>r.remove(),500)},
+  cover(on){$('pcov').classList.toggle('on',!!on)},
+  cursor(x,y,click){const c=$('cur'),r=$('rip');c.style.left=(x-6)+'px';c.style.top=(y-4)+'px';r.style.display=click?'block':'none';r.style.left=(x-37)+'px';r.style.top=(y-37)+'px'},
+  nocursor(){$('cur').style.left='-100px';$('rip').style.display='none'}
+};
+</script></body></html>

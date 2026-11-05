@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+*{box-sizing:border-box;margin:0}
+body{background:radial-gradient(circle at 75% 20%,#22357F 0%,#0F1A47 45%,#0A1030 100%);font-family:'IBM Plex Sans',Arial,sans-serif;color:#F5F3EE;overflow:hidden;position:relative}
+body::before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:64px 64px}
+.wrap{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;gap:44px}
+.eb{font:600 26px 'IBM Plex Sans';letter-spacing:.18em;text-transform:uppercase;color:#F5B53F}
+h1{font:800 120px/0.98 'Archivo',sans-serif;font-stretch:112%;letter-spacing:-3px}
+h2{font:800 76px/1.05 'Archivo',sans-serif;font-stretch:110%;letter-spacing:-1px}
+.big{display:flex;gap:70px;flex-wrap:wrap}
+.big div{display:grid;gap:8px}
+.big b{font:800 170px/0.9 'Archivo',sans-serif;font-stretch:112%;color:#F5B53F}
+.big span{font-size:34px;color:#C7CFEA}
+.pains{display:grid;gap:26px}
+.pains div{display:flex;align-items:center;gap:26px;font:700 62px 'Archivo',sans-serif;font-stretch:108%}
+.pains i{width:70px;height:70px;border-radius:50%;background:#B42318;display:grid;place-items:center;font-style:normal;font-size:44px;flex:none}
+.wins{display:grid;gap:26px}
+.wins div{display:flex;align-items:center;gap:26px;font:700 66px 'Archivo',sans-serif;font-stretch:108%}
+.wins i{width:74px;height:74px;border-radius:50%;background:#1C7A43;display:grid;place-items:center;font-style:normal;font-size:44px;flex:none}
+.logo{width:520px}
+.who{font-size:30px;color:#C7CFEA}
+.foot{position:absolute;font-size:26px;color:#8D9AC9}
+.wrap>*{animation:up .7s cubic-bezier(.2,.8,.2,1) both}
+.wrap>*:nth-child(2){animation-delay:.15s}.wrap>*:nth-child(3){animation-delay:.3s}.wrap>*:nth-child(4){animation-delay:.45s}
+.pains div,.wins div,.big div{animation:up .6s cubic-bezier(.2,.8,.2,1) both}
+.pains div:nth-child(1),.wins div:nth-child(1),.big div:nth-child(1){animation-delay:.35s}.pains div:nth-child(2),.wins div:nth-child(2),.big div:nth-child(2){animation-delay:1.1s}.pains div:nth-child(3),.wins div:nth-child(3){animation-delay:1.85s}
+@keyframes up{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}
+.wrap.out{transition:opacity .35s;opacity:0}
+</style></head><body>
+<div class="wrap" id="w"></div>
+<script>
+const P=new URLSearchParams(location.search),V=P.get('layout')==='v',k=P.get('k');
+const W=V?1080:1920,H=V?1920:1080;document.body.style.width=W+'px';document.body.style.height=H+'px';
+const w=document.getElementById('w');w.style.padding=V?'0 80px':'0 160px';
+const L='<img class="logo" src="/repo-soytechno/assets/logo-white.png" alt="Soytechno">';
+const C={
+ hoy:'<span class="eb">Pedidos Cashea en Soytechno</span><div class="big"><div><b>1.000</b><span>pedidos al día</span></div><div><b>4.000+</b><span>en temporada alta</span></div></div>',
+ dolor:'<span class="eb">Hoy, cada pedido</span><div class="pains"><div><i>✕</i>Se copia a mano</div><div><i>✕</i>Se reparte por WhatsApp</div><div><i>✕</i>Se persigue al cliente</div></div>',
+ titulo:L+'<span class="eb">El sistema que lo cambia</span><h1>Pedidos Cashea<br>en automático</h1>',
+ beneficios:'<span class="eb">Resultado</span><div class="wins"><div><i>✓</i>Menos asesores</div><div><i>✓</i>Menos errores</div><div><i>✓</i>Respuesta inmediata</div></div>',
+ cierre:L+'<h1>Pedidos Cashea<br>en automático</h1><span class="who">Propuesta para Soytechno · Adrian Sanoja</span>'
+};
+function render(k){w.classList.remove('out');w.innerHTML=C[k]||'';if(V){document.querySelectorAll('h1').forEach(h=>h.style.fontSize='104px');document.querySelectorAll('.big b').forEach(b=>b.style.fontSize='150px');document.querySelectorAll('.pains div,.wins div').forEach(d=>d.style.fontSize='56px');document.querySelectorAll('.logo').forEach(l=>l.style.width='440px')}
+ document.querySelectorAll('.big b').forEach(b=>{const fin=b.textContent,n=parseInt(fin.replace(/\D/g,'')),suf=fin.includes('+')?'+':'';const t0=performance.now();const st=t=>{const k=Math.min(1,(t-t0)/1400),e=1-Math.pow(1-k,3);b.textContent=Math.round(n*e).toLocaleString('es-VE')+(k>=1?suf:'');if(k<1)requestAnimationFrame(st)};requestAnimationFrame(st)})}
+window.show=k=>{w.classList.add('out');setTimeout(()=>render(k),350)};render(k);
+</script></body></html>

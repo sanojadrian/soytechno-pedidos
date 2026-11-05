@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<style>
+*{box-sizing:border-box;margin:0}
+body{width:800px;height:600px;overflow:hidden;font-family:'DejaVu Sans',Arial,sans-serif}
+.s{position:absolute;inset:0;display:grid;place-items:center}
+.factura{background:radial-gradient(circle at 30% 20%,#8a7a66,#5b4e40)}
+.paper{width:430px;height:540px;background:#fbf8f0;transform:rotate(-4deg);box-shadow:0 30px 50px rgba(0,0,0,.45);padding:34px;font-family:'DejaVu Sans Mono',monospace;color:#222;font-size:15px;line-height:1.7}
+.paper h3{font-size:22px;text-align:center;margin-bottom:6px}.paper .c{text-align:center;color:#666;margin-bottom:14px}
+.paper hr{border:0;border-top:2px dashed #aaa;margin:10px 0}
+.r{display:flex;justify-content:space-between}
+.equipo{background:linear-gradient(160deg,#c9ccd3,#8d939f)}
+.box{width:330px;height:420px;border-radius:26px;background:linear-gradient(150deg,#d9f2e2,#9fd1b4);box-shadow:0 30px 60px rgba(0,0,0,.35);position:relative;transform:rotate(6deg)}
+.ph{position:absolute;left:50px;top:40px;width:230px;height:340px;border-radius:30px;background:#1b1f2b;box-shadow:inset 0 0 0 6px #2c3242}
+.ph::after{content:"";position:absolute;inset:18px;border-radius:20px;background:linear-gradient(160deg,#4f7cff,#7fe0b0)}
+.empaque{background:linear-gradient(160deg,#b9a68b,#7d6a52)}
+.carton{width:480px;height:330px;background:#c59a63;border-radius:10px;box-shadow:0 30px 60px rgba(0,0,0,.4);position:relative}
+.carton::before{content:"";position:absolute;left:0;right:0;top:140px;height:50px;background:rgba(240,230,210,.75)}
+.lbl{position:absolute;right:30px;bottom:26px;background:#fff;padding:10px 14px;font:600 14px 'DejaVu Sans Mono',monospace;color:#222;border-radius:4px}
+.guia{background:linear-gradient(160deg,#9aa3b5,#5f6880)}
+.label{width:470px;height:330px;background:#fff;border-radius:8px;box-shadow:0 30px 60px rgba(0,0,0,.4);padding:26px;font:15px 'DejaVu Sans Mono',monospace;color:#222;transform:rotate(-3deg)}
+.label h3{font-size:24px;margin-bottom:10px}.bars{height:70px;margin-top:16px;background:repeating-linear-gradient(90deg,#111 0 3px,#fff 3px 6px,#111 6px 7px,#fff 7px 11px)}
+.tag{position:absolute;left:18px;top:16px;background:rgba(0,0,0,.55);color:#fff;font:600 14px 'DejaVu Sans',sans-serif;padding:6px 10px;border-radius:6px}
+</style></head><body>
+<div class="s factura" id="factura"><div class="paper"><h3>FACTURA</h3><div class="c">SoyTechno · ejemplo</div><hr><div class="r"><span>Pedido</span><span>#241157548</span></div><div class="r"><span>Cliente</span><span>M. González</span></div><hr><div>SAMSUNG GALAXY A16 4G</div><div>4GB/128GB LIGHT GREEN</div><div class="r"><span>Cant. 1</span><span>$172,41</span></div><hr><div class="r"><span>Base imponible</span><span>$172,41</span></div><div class="r"><span>IVA 16%</span><span>$27,59</span></div><div class="r"><b>TOTAL</b><b>$200,00</b></div><hr><div class="c">Documento de ejemplo</div></div><span class="tag">Foto · Factura</span></div>
+<div class="s equipo hide" id="equipo"><div class="box"><div class="ph"></div></div><span class="tag">Foto · Equipo</span></div>
+<div class="s empaque hide" id="empaque"><div class="carton"><div class="lbl">#241157548 · Ruta foránea</div></div><span class="tag">Foto · Empaque</span></div>
+<div class="s guia hide" id="guia"><div class="label"><h3>RUTA FORÁNEA · VALENCIA</h3><div>Pedido #241157548</div><div>Cliente: M. González</div><div>Destino: Valencia</div><div class="bars"></div><div>Etiqueta de ejemplo</div></div><span class="tag">Foto · Entrega</span></div>
+<style>.hide{display:none}</style>
+</body></html>

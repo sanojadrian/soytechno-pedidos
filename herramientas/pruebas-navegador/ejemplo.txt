@@ -1,0 +1,31 @@
+Confirmación del pedido
+
+Código de identificación:
+241157548
+
+Información de pagos
+
+Número de cuotas:	6
+Fecha primer pago:	18/11/2026
+Fecha último pago:	27/01/2027
+Información de Cliente
+
+MARÍA GONZÁLEZ
++584145550123
+12345678
+maria.prueba@correo.com
+
+Resumen de pedido
+
+SAMSUNG GALAXY A16 4G 4GB/128GB SM-A165M/DS, LIGHT GREEN. CELULAR.
+
+Precio:	$220.00
+Cantidad:	1
+Total:	$220.00
+Resumen
+
+Subtotal:	$172.41
+IVA (16%):	$27.59
+ 
+Total:	$200.00
+Pago Inicial:	$40.00 - 20%

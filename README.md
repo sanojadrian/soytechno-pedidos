@@ -1,6 +1,13 @@
-# Soytechno · Pedidos Cashea (demo)
+# Soytechno · Pedidos Cashea
 
-Demo funcional del sistema de pedidos Cashea para Soytechno.
+Este repositorio tiene dos sistemas separados:
+
+- **Demo** (carpeta raíz): para presentaciones. Sin usuarios ni contraseñas; solo datos de prueba.
+- **Producción** (carpeta `produccion/` y `supabase/produccion/`): el sistema para operar, con usuario por persona,
+  roles, enlace secreto para cada cliente, WhatsApp por Callbell, lectura automática del correo, fotos privadas,
+  historial que no se puede borrar y alertas. **Cómo instalarlo: [INSTALACION.md](INSTALACION.md).**
+
+## Demo
 
 - `index.html` — portada de la demo
 - `panel.html` — app del equipo (bandeja de correos, cajas, despacho, asesores, administración, supervisión)

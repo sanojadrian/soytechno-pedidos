@@ -55,7 +55,17 @@ async function esSupervisor(req: Request): Promise<string | null> {
   if (!r.ok) return null;
   const u = await r.json();
   const p = await llamar(`/rest/v1/perfiles?id=eq.${u.id}&select=rol,activo`);
-  return p && p[0] && p[0].activo && p[0].rol === 'supervisor' ? u.id : null;
+  return p && p[0] && p[0].activo && p[0].rol === 'supervisor' ? String(u.id).toLowerCase() : null;
+}
+const esUuid = (x: unknown) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(String(x || ''));
+/** ¿Quedaría al menos otro supervisor activo si este deja de serlo? */
+async function quedaOtroSupervisor(id: string): Promise<boolean> {
+  const sup = await llamar(`/rest/v1/perfiles?rol=eq.supervisor&activo=eq.true&id=neq.${id}&select=id`);
+  return Array.isArray(sup) && sup.length > 0;
+}
+async function esSupervisorActivo(id: string): Promise<boolean> {
+  const p = await llamar(`/rest/v1/perfiles?id=eq.${id}&select=rol,activo`);
+  return !!(p && p[0] && p[0].rol === 'supervisor' && p[0].activo);
 }
 
 export async function manejar(req: Request): Promise<Response> {
@@ -63,6 +73,7 @@ export async function manejar(req: Request): Promise<Response> {
   const yo = await esSupervisor(req);
   if (!yo) return json({ ok: false, detalle: 'Solo Supervisión puede administrar usuarios.' }, 403);
   let b: any; try { b = await req.json(); } catch { return json({ ok: false, detalle: 'Datos no válidos.' }, 400); }
+  if (b && b.id !== undefined) { b.id = String(b.id).toLowerCase(); if (!esUuid(b.id)) return json({ ok: false, detalle: 'Usuario no válido.' }, 400); }
 
   try {
     switch (b?.accion) {
@@ -88,6 +99,7 @@ export async function manejar(req: Request): Promise<Response> {
         if (!b.id) return json({ ok: false, detalle: 'Falta el usuario.' }, 400);
         const err = validarPerfil(b); if (err) return json({ ok: false, detalle: err }, 400);
         if (b.id === yo && b.rol !== 'supervisor') return json({ ok: false, detalle: 'No puedes quitarte a ti mismo el rol de supervisor.' }, 400);
+        if (b.rol !== 'supervisor' && await esSupervisorActivo(b.id) && !(await quedaOtroSupervisor(b.id))) return json({ ok: false, detalle: 'Debe quedar al menos un supervisor activo.' }, 400);
         await llamar(`/rest/v1/perfiles?id=eq.${encodeURIComponent(b.id)}`, { method: 'PATCH', prefer: 'return=minimal', body: JSON.stringify(limpio(b)) });
         return json({ ok: true });
       }
@@ -99,6 +111,7 @@ export async function manejar(req: Request): Promise<Response> {
       case 'activar': case 'desactivar': {
         const activo = b.accion === 'activar';
         if (b.id === yo && !activo) return json({ ok: false, detalle: 'No puedes darte de baja a ti mismo.' }, 400);
+        if (!activo && await esSupervisorActivo(b.id) && !(await quedaOtroSupervisor(b.id))) return json({ ok: false, detalle: 'Debe quedar al menos un supervisor activo.' }, 400);
         await llamar(`/auth/v1/admin/users/${encodeURIComponent(b.id)}`, { method: 'PUT', body: JSON.stringify({ ban_duration: activo ? 'none' : '876000h' }) });
         await llamar(`/rest/v1/perfiles?id=eq.${encodeURIComponent(b.id)}`, { method: 'PATCH', prefer: 'return=minimal', body: JSON.stringify({ activo }) });
         return json({ ok: true });

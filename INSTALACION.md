@@ -29,6 +29,9 @@ Plan recomendado de Supabase: **Pro** (US$25/mes). El plan gratis se pausa si no
 2. Nombre: `soytechno-produccion`. Región: **East US (North Virginia)**, la más cercana a Venezuela.
 3. Guarda la contraseña de la base de datos en un lugar seguro.
 
+Después de crearlo, en **Authentication → Sign In / Providers** apaga **Allow new users to sign up**.
+Así nadie puede crearse una cuenta por su cuenta: los usuarios solo los crea Supervisión.
+
 ## Paso 2 · Crear la base de datos
 
 1. En el proyecto: **SQL Editor** → **New query**.
@@ -73,7 +76,8 @@ Para **cada una** de estas funciones:
 | `CALLBELL_API_KEY` | La clave de la API de Callbell |
 | `INGRESO_CLAVE` | Inventa una clave larga (30 letras y números al azar). La usa el script de Gmail. |
 | `PROCESO_CLAVE` | Otra clave larga distinta. La usa la tarea automática. |
-| `CLIENTE_URL` | `https://sanojadrian.github.io/soytechno-pedidos/produccion/cliente.html` |
+| `REMITENTES_PERMITIDOS` | El dominio desde el que escribe Cashea, por ejemplo `cashea.app`. Solo los correos de ese dominio crean pedidos. Para verlo: abre un correo real de Cashea → ⋮ → «Mostrar original» → línea «From». |
+| `CLIENTE_URL` | La dirección de la página del cliente, terminada en `cliente.html` (ver paso 7) |
 | `SOLO_TELEFONOS` | **Durante el piloto**: tus números de prueba separados por coma. Bórralo para operar con todos los clientes. |
 | `CALLBELL_CHANNEL_UUID` | Opcional: solo si Callbell tiene más de un canal de WhatsApp |
 | `CALLBELL_TEMPLATE_UUID` | Recomendado: el identificador de la plantilla aprobada (paso 9) |
@@ -98,12 +102,19 @@ Edita [`produccion/assets/config.js`](produccion/assets/config.js) con:
 
 Si me pasas la Project URL, la clave publishable y los datos del pago móvil, lo hago yo.
 
-El sistema queda en: `https://sanojadrian.github.io/soytechno-pedidos/produccion/`
+**Dónde publicarla (importante para la seguridad):** la producción debe tener **su propia dirección**,
+no la misma de la demo. Lo recomendado es un subdominio de Soytechno, por ejemplo `pedidos.soytechno.com`
+(lo configura quien maneja el dominio de Soytechno; yo te preparo los pasos). Mientras tanto se puede probar en
+`https://sanojadrian.github.io/soytechno-pedidos/produccion/`, pero no se debe operar ahí con clientes reales:
+comparte dirección con la demo, que es abierta.
 
 ## Paso 8 · Conectar el Gmail que recibe los pedidos
 
 Sigue las instrucciones al inicio de [`integraciones/gmail-apps-script.gs`](integraciones/gmail-apps-script.gs).
-En resumen: script.google.com → nuevo proyecto → pegar → poner `URL_FUNCION` e `INGRESO_CLAVE` → ejecutar **instalar**.
+En resumen: script.google.com → nuevo proyecto → pegar → poner `URL_FUNCION`, `INGRESO_CLAVE` y `DOMINIOS_CASHEA` → ejecutar **instalar**.
+
+El script solo envía al sistema los correos **del dominio de Cashea que Gmail comprobó como auténticos**.
+Un correo falso, o uno reenviado a mano, no crea pedidos: queda en la Bandeja como «revisar».
 Lo hace alguien con acceso a esa cuenta de Gmail; la contraseña no se comparte con nadie.
 
 Si Soytechno usa **Outlook** en vez de Gmail, avísame y preparo la alternativa.
@@ -120,7 +131,9 @@ Los demás avisos (Lechería, alternativas, despacho) llegan cuando la conversac
 
 ## Paso 10 · Prueba piloto
 
-1. Con `SOLO_TELEFONOS` puesto, reenvía un correo de Cashea al buzón con **tu** teléfono en los datos del cliente.
+1. Con `SOLO_TELEFONOS` puesto, espera el primer correo real de Cashea (o haz una compra de prueba con tu teléfono).
+   Un correo reenviado no sirve para la prueba: el sistema lo rechaza a propósito por seguridad.
+   Para probar sin esperar, carga un correo a mano en **Bandeja** con tu teléfono.
 2. En un minuto aparece el pedido y te llega el WhatsApp.
 3. Haz el recorrido completo: cliente → caja → despacho. Revisa **Supervisión → buscar el pedido**.
 4. Crea los usuarios reales en **Usuarios** y empieza con **una sola caja** (por ejemplo MRW).
@@ -141,7 +154,19 @@ Los demás avisos (Lechería, alternativas, despacho) llegan cuando la conversac
 - **Oficinas MRW**: el cliente escribe la oficina. Se puede cargar la lista oficial más adelante.
 - **Cashea**: los pedidos se leen del correo. Si Cashea ofrece API, se puede conectar después.
 
+## Seguridad
+
+- Cada persona entra con su usuario; nadie modifica pedidos directo en la base: todo pasa por funciones que validan rol y estado.
+- El enlace del cliente es secreto y no lo ve el personal salvo quien atiende clientes (operador, asesores, ajuste, supervisión).
+- Solo crean pedidos los correos auténticos de Cashea. Si llega otro correo con el mismo número de pedido y otro cliente, salta una alerta.
+- Las referencias de pago se comparan sin ceros a la izquierda y con la lista de bancos, para que no se puedan reutilizar.
+- Las fotos son privadas, solo JPG de hasta 5 MB, y tienen que existir para poder marcarlas.
+- El Excel exportado neutraliza fórmulas.
+- Las páginas solo cargan código propio y la librería de Supabase verificada por su huella.
+- Un pedido de **inicial 0%** no tiene pago que verificar: si llega algo raro, confírmalo en el portal de Cashea antes de facturar.
+
 ## Pruebas incluidas
 
-- `supabase/produccion/prueba/flujo.sql`: más de 70 comprobaciones de la base de datos con cada rol
-  (permisos, un pedido por cajero, referencias repetidas, fotos obligatorias, cola de WhatsApp, alertas).
+- `supabase/produccion/prueba/flujo.sql`: 96 comprobaciones de la base de datos con cada rol
+  (permisos, un pedido por cajero, referencias repetidas, fotos obligatorias, cola de WhatsApp, alertas, correos falsos).
+- `supabase/produccion/prueba/carga.mjs`: prueba de carga con un año de historial, 4.000 pedidos y 20 cajeros a la vez.

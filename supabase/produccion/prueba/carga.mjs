@@ -52,7 +52,7 @@ const hoyVE = "(now() at time zone 'America/Caracas')::date";
   console.log(`   ${r.tiempos.length} correos · p50 ${ms(pct(r.tiempos, .5))} · p95 ${ms(pct(r.tiempos, .95))} · errores ${r.errores.length}`);
 
   console.log('\n== 3. 3.600 clientes eligen entrega y pagan (20 a la vez) ==');
-  const tokens = (await db.query("select code, token, ini_pct from pedidos where code::bigint >= 500000000 order by code")).rows;
+  const tokens = (await db.query("select p.code, t.token, p.ini_pct from pedidos p join pedidos_token t using (code) where p.code::bigint >= 500000000 order by p.code")).rows;
   r = await enParalelo(20, 3600, (c, k) => {
     const p = tokens[k], d = elegir(k), conPago = Number(p.ini_pct) > 0;
     const ref = k % 100 === 5 ? String(9000000000 + k - 1) : String(9000000000 + k);   // 1% intenta repetir la referencia del pedido anterior (ambos con inicial)
@@ -95,7 +95,7 @@ const hoyVE = "(now() at time zone 'America/Caracas')::date";
   const factDobles = (await db.query("select count(*) n from (select code from eventos where e like 'Facturado%' and code::bigint >= 500000000 group by code having count(*) > 1) x")).rows[0].n;
   const quedan = (await db.query("select count(*) n from pedidos where st in ('caja','tomado') and code::bigint >= 500000000")).rows[0].n;
   const refsDup = (await db.query("select count(*) n from (select referencia from referencias group by banco, referencia having count(*) > 1) x")).rows[0].n;
-  const bloqueadas = (await db.query("select count(*) n from pedidos where st = 'cliente' and ini_pct > 0 and code::bigint between 500000000 and 500003599 and (code::bigint - 500000000) % 100 = 5")).rows[0].n;
+  const bloqueadas = (await db.query("select count(*) n from pedidos where st = 'cliente' and ini_pct > 0 and code::bigint between 500000000 and 500003599")).rows[0].n;
   console.log(`   pedidos tomados por dos cajeros: ${dobles} · facturados dos veces: ${factDobles} · quedaron en cola: ${quedan}`);
   console.log(`   referencias repetidas guardadas: ${refsDup} · intentos de pago repetido bloqueados: ${bloqueadas}`);
 

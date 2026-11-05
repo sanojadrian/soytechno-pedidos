@@ -35,13 +35,25 @@ async function rpc(nombre: string, args: unknown) {
   return t ? JSON.parse(t) : null;
 }
 
-/** ¿Quién llama? El cron o recibir-correo (x-clave) o una persona con sesión iniciada. */
+/** Comparación en tiempo constante para claves compartidas */
+function claveIgual(a: string, b: string): boolean {
+  if (!a || !b || a.length !== b.length) return false;
+  let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+}
+
+/** ¿Quién llama? El cron o recibir-correo (x-clave) o una persona ACTIVA del personal. */
 async function autorizado(req: Request): Promise<boolean> {
-  if (env('PROCESO_CLAVE') && req.headers.get('x-clave') === env('PROCESO_CLAVE')) return true;
+  if (claveIgual(req.headers.get('x-clave') || '', env('PROCESO_CLAVE'))) return true;
   const auth = req.headers.get('authorization') || '';
   if (!auth.toLowerCase().startsWith('bearer ')) return false;
   const r = await fetch(`${env('SUPABASE_URL')}/auth/v1/user`, { headers: { apikey: claveServicio(), Authorization: auth } });
-  return r.ok;
+  if (!r.ok) return false;
+  const u = await r.json();
+  if (!/^[0-9a-f-]{36}$/i.test(String(u?.id || ''))) return false;
+  const p = await fetch(`${env('SUPABASE_URL')}/rest/v1/perfiles?id=eq.${u.id}&select=activo`, { headers: hdrServicio() });
+  const f = p.ok ? await p.json() : [];
+  return !!(f[0] && f[0].activo);
 }
 
 /* ---------- textos ---------- */

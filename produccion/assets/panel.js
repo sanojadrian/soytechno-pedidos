@@ -41,7 +41,7 @@
 
   const lista = f => Array.from(P.values()).filter(f).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
   const cnt = f => lista(f).length;
-  const clienteURL = o => new URL('cliente.html?t=' + encodeURIComponent(o.token), location.href).href;
+  const clienteURL = token => new URL('cliente.html?t=' + encodeURIComponent(token), location.href).href;
   const horasDesde = t => (Date.now() - new Date(t).getTime()) / 36e5;
 
   /* ---------- datos ---------- */
@@ -106,7 +106,9 @@
   const selTienda = (id, sel) => '<select id="' + id + '">' + ORIGENES.map(s => '<option' + (s === sel ? ' selected' : '') + '>' + s + '</option>').join('') + '</select>';
   const SLOTS = [['factura', 'Factura'], ['equipo', 'Equipo'], ['empaque', 'Empaque'], ['entrega', 'Guía o entrega']];
   const foto = (ruta, alt, extra) => '<a class="ph-slot done" data-ruta="' + esc(ruta) + '" target="_blank" rel="noopener"' + (extra || '') + '><img data-ruta="' + esc(ruta) + '" alt="' + esc(alt) + '"><span class="lbl2">' + esc(alt) + '</span></a>';
-  const enlaceCliente = o => { const id = 'l-' + esc(o.code); return '<div class="linkbox"><span id="' + id + '">' + esc(clienteURL(o)) + '</span><button type="button" class="btn ghost sm" data-act="copiar" data-t="' + id + '">Copiar enlace</button><button type="button" class="btn ghost sm" data-act="reenviar" data-c="' + esc(o.code) + '">Reenviar WhatsApp</button></div>'; };
+  // El enlace secreto del cliente se pide al servidor solo cuando alguien lo necesita
+  const PUEDE_ENLACE = SUP || ['operador', 'asesor', 'ajuste'].indexOf(yo.rol) > -1;
+  const enlaceCliente = o => !PUEDE_ENLACE ? '' : '<div class="linkbox"><span id="l-' + esc(o.code) + '" class="muted">Enlace del cliente</span><button type="button" class="btn ghost sm" data-act="enlace" data-c="' + esc(o.code) + '">Copiar enlace</button><button type="button" class="btn ghost sm" data-act="reenviar" data-c="' + esc(o.code) + '">Reenviar WhatsApp</button></div>';
 
   /* ---------- Bandeja (operador) ---------- */
   function vBandeja() {
@@ -310,7 +312,7 @@
         + '<ol class="steps">' + d.ev.map(h => '<li class="done"><span class="d">✓</span><span><b>' + esc(h.e) + '</b><small>' + fechaHora(h.t) + ' · ' + esc(h.por_nombre) + '</small></span></li>').join('') + '</ol>'
         + (d.ms.length ? '<h4>WhatsApp al cliente</h4><div class="msgs">' + d.ms.map(m => '<div><span class="pill p-' + esc(m.estado) + '">' + esc(m.estado) + '</span> ' + esc(m.tipo) + ' · ' + fechaHora(m.created_at) + (m.detalle && m.estado !== 'enviado' ? ' · <span class="muted">' + esc(m.detalle) + '</span>' : '') + '</div>').join('') + '</div>' : '')
         + (fotos.length ? '<h4>Fotos</h4><div class="photos">' + fotos.map(k => foto(o.fotos[k], k)).join('') + '</div>' : '')
-        + (o.token ? enlaceCliente(o) : '')
+        + enlaceCliente(o)
         + (o.st === 'tomado' && SUP ? '<div class="actbar"><button type="button" class="btn ghost sm" data-act="liberar" data-c="' + esc(o.code) + '">Liberar: devolver a la cola (lo tiene ' + esc(o.tomado_nombre) + ')</button></div>' : '') + '</div>';
     }
     const lst = (UI.sq.trim().length >= 3 ? X.buscar : lista(() => true).reverse().slice(0, 40));
@@ -323,7 +325,8 @@
   }
   function exportar() {
     const cols = [['Pedido', o => o.code], ['Estado', o => ESTADO[o.st] || o.st], ['Caja', o => DN[o.dept] || ''], ['Cliente', o => (o.cliente || {}).nombre], ['Cédula', o => (o.cliente || {}).cedula], ['Teléfono', o => (o.cliente || {}).telefono], ['Producto', o => o.producto], ['Total sin IVA', o => o.total], ['Inicial %', o => o.ini_pct], ['Inicial $', o => o.ini_monto], ['Entrega', o => [(o.entrega || {}).metodo, (o.entrega || {}).detalle, (o.entrega || {}).ciudad].filter(Boolean).join(' · ')], ['Referencia', o => (o.pago || {}).referencia], ['Atiende', o => o.tomado_nombre], ['Creado', o => fechaHora(o.created_at)], ['Actualizado', o => fechaHora(o.updated_at)]];
-    const cel = v => { const s = String(v == null ? '' : v); return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    // Neutraliza fórmulas (=, +, -, @) para que nadie meta código en el Excel desde un pedido
+    const cel = v => { let s = String(v == null ? '' : v); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[";\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     const filas = lista(o => ['despachado', 'entregado', 'cancelado'].indexOf(o.st) < 0);
     const csv = '﻿' + [cols.map(c => c[0]).join(';')].concat(filas.map(o => cols.map(c => cel(c[1](o))).join(';'))).join('\r\n');
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -386,7 +389,18 @@
       case 'ir': vista = b.getAttribute('data-v'); history.replaceState(null, '', '#' + vista); X.det = null; pintar(); cargarExtras(); window.scrollTo(0, 0); break;
       case 'salir': await sb.auth.signOut(); location.replace('index.html'); break;
       case 'copiar': { const el = document.getElementById(b.getAttribute('data-t')); if (!el) break; try { await navigator.clipboard.writeText(el.textContent); b.textContent = 'Copiado'; } catch (x) { const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = 'Seleccionado'; } break; }
-      case 'reenviar': { b.disabled = true; const { error } = await sb.rpc('reenviar_aviso', { p_code: c, p_tipo: 'enlace' }); if (error) toast(error.message); else { toast('WhatsApp en camino'); empujarAvisos(); } b.disabled = false; break; }
+      case 'reenviar': {
+        b.disabled = true;
+        const o = P.get(c) || (X.det && X.det.o) || {}, tipo = { espera: 'alternativas', traslado: 'lecheria', despachado: 'despachado' }[o.st] || 'enlace';
+        const { error } = await sb.rpc('reenviar_aviso', { p_code: c, p_tipo: tipo }); if (error) toast(error.message); else { toast('WhatsApp en camino'); empujarAvisos(); } b.disabled = false; break;
+      }
+      case 'enlace': {
+        const { data, error } = await sb.rpc('enlace_cliente', { p_code: c });
+        if (error || !data) { toast(error ? error.message : 'Este pedido no tiene enlace.'); break; }
+        const url = clienteURL(data), el = document.getElementById('l-' + c); if (el) { el.textContent = url; el.classList.remove('muted'); }
+        try { await navigator.clipboard.writeText(url); b.textContent = 'Copiado'; } catch (x) { if (el) { const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r); } b.textContent = 'Seleccionado'; }
+        break;
+      }
       // bandeja
       case 'b-leer': { B.txt = val('b-txt'); B.p = parseCashea(B.txt); B.creado = null; if (!B.p.code) toast('No encontré el código del pedido en ese texto.'); pintar(); break; }
       case 'b-nuevo': B.txt = ''; B.p = null; B.creado = null; B.correoId = null; pintar(); break;

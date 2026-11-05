@@ -31,7 +31,6 @@ create table if not exists public.perfiles (
 
 create table if not exists public.pedidos (
   code          text primary key,                 -- código de identificación de Cashea
-  token         text not null unique default replace(gen_random_uuid()::text, '-', ''),
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now(),
   st            text not null default 'cliente' check (st in (
@@ -61,11 +60,25 @@ create index if not exists pedidos_cola_idx     on public.pedidos (dept, st, cre
 create index if not exists pedidos_creado_idx   on public.pedidos (created_at desc);
 create index if not exists pedidos_cedula_idx   on public.pedidos ((cliente->>'cedula'));
 create index if not exists pedidos_actualizado_idx on public.pedidos (updated_at desc);
+create unique index if not exists pedidos_un_tomado_idx on public.pedidos (tomado_por) where st = 'tomado';
 -- Búsquedas por parte de la cédula, el nombre o el número (Tiendas y Supervisión)
 create extension if not exists pg_trgm with schema extensions;
 create index if not exists pedidos_cedula_trgm  on public.pedidos using gin ((cliente->>'cedula') extensions.gin_trgm_ops);
 create index if not exists pedidos_nombre_trgm  on public.pedidos using gin ((cliente->>'nombre') extensions.gin_trgm_ops);
 create index if not exists pedidos_code_trgm    on public.pedidos using gin (code extensions.gin_trgm_ops);
+
+-- Enlace secreto del cliente. Ningún usuario lo lee directo: solo las funciones del servidor.
+create table if not exists public.pedidos_token (
+  code   text primary key references public.pedidos(code) on delete cascade,
+  token  text not null unique default replace(gen_random_uuid()::text, '-', '')
+);
+-- Migración: versiones anteriores guardaban el token dentro de pedidos
+do $$ begin
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'pedidos' and column_name = 'token') then
+    execute 'insert into public.pedidos_token (code, token) select code, token from public.pedidos on conflict do nothing';
+    execute 'alter table public.pedidos drop column token';
+  end if;
+end $$;
 
 create table if not exists public.eventos (
   id          bigserial primary key,
@@ -182,6 +195,19 @@ drop trigger if exists pedidos_updated_at on public.pedidos;
 create trigger pedidos_updated_at before update on public.pedidos
 for each row execute function public.tocar_updated_at();
 
+-- Bancos aceptados en el pago móvil (la misma lista que ve el cliente)
+create or replace function public.banco_valido(p text) returns boolean
+language sql immutable as $$
+  select p in ('Banco de Venezuela','Banesco','Mercantil','Provincial','BNC','Bancamiga','Banco del Tesoro','Bicentenario',
+               'BFC Banco Fondo Común','Banco Plaza','Bancaribe','Banco Exterior','Banplus','Banco Activo','100% Banco',
+               'Sofitasa','Banco Caroní','Venezolano de Crédito','Bancrecer','Mi Banco','Otro')
+$$;
+-- Referencia comparable: solo dígitos y sin ceros a la izquierda (004598 = 4598)
+create or replace function public.ref_norm(p text) returns text
+language sql immutable as $$
+  select coalesce(nullif(ltrim(regexp_replace(coalesce(p, ''), '\D', '', 'g'), '0'), ''), '0')
+$$;
+
 -- Departamento según el método de entrega
 create or replace function public.dept_de(p_metodo text) returns text
 language sql immutable as $$
@@ -269,10 +295,20 @@ begin
   returning * into v_row;
 
   if v_row.code is null then
+    select * into v_row from public.pedidos where code = v_code;
+    if right(regexp_replace(coalesce(v_row.cliente ->> 'telefono', ''), '\D', '', 'g'), 10) <> right(regexp_replace(coalesce(p #>> '{cliente,telefono}', ''), '\D', '', 'g'), 10)
+       or regexp_replace(coalesce(v_row.cliente ->> 'cedula', ''), '\D', '', 'g') <> regexp_replace(coalesce(p #>> '{cliente,cedula}', ''), '\D', '', 'g') then
+      insert into public.alertas (tipo, texto, clave)
+      values ('conflicto', 'Llegó otro correo del pedido #' || v_code || ' con datos de cliente distintos. Confirma en el portal de Cashea cuál es el verdadero.', 'conflicto ' || v_code)
+      on conflict (clave) do nothing;
+      perform public.registrar(v_code, 'Alerta: llegó otro correo de este pedido con datos de cliente distintos');
+      return jsonb_build_object('estado', 'conflicto', 'code', v_code);
+    end if;
     return jsonb_build_object('estado', 'duplicado', 'code', v_code);
   end if;
+  insert into public.pedidos_token (code) values (v_code);
   perform public.registrar(v_code, 'Correo de Cashea leído' || case when v_mix then ' · venta MIX a Stand-by' else '' end);
-  return jsonb_build_object('estado', 'creado', 'code', v_code, 'token', v_row.token, 'st', v_row.st);
+  return jsonb_build_object('estado', 'creado', 'code', v_code, 'st', v_row.st);
 end $$;
 
 -- ------------------------------------------------------------- cajas ------
@@ -289,6 +325,7 @@ begin
   if not (v.rol = 'supervisor' or (v.rol = 'cajero' and v.dept = p_dept)) then
     perform public.fallar('Esta no es tu caja.');
   end if;
+  perform pg_advisory_xact_lock(hashtext('tomar:' || v.id::text));   -- dos clics a la vez no toman dos pedidos
   select * into r from public.pedidos where st = 'tomado' and tomado_por = v.id limit 1;
   if found then return r; end if;
   select * into r from public.pedidos
@@ -306,8 +343,8 @@ end $$;
 create or replace function public.estado_referencia(p_banco text, p_ref text, p_code text) returns text
 language sql stable security definer set search_path = public as $$
   select case
-    when exists (select 1 from public.referencias where banco = p_banco and referencia = p_ref and code <> p_code) then 'duplicada'
-    when exists (select 1 from public.referencias where referencia = p_ref and banco <> p_banco and code <> p_code) then 'otro_banco'
+    when exists (select 1 from public.referencias where banco = p_banco and referencia = public.ref_norm(p_ref) and code <> p_code) then 'duplicada'
+    when exists (select 1 from public.referencias where referencia = public.ref_norm(p_ref) and banco <> p_banco and code <> p_code) then 'otro_banco'
     else 'ok'
   end
 $$;
@@ -326,7 +363,7 @@ declare
   txt  text;
   arr  jsonb;
   ref  text;
-  est  text;
+  est  text := 'ok';
 begin
   if v.id is null then perform public.fallar('Tu usuario no está activo.'); end if;
   sup := v.rol = 'supervisor';
@@ -408,15 +445,15 @@ begin
       est := public.estado_referencia(coalesce(o.pago ->> 'banco', ''), ref, p_code);
       if est = 'duplicada' then perform public.fallar('Esa referencia ya está registrada en otro pedido.'); end if;
       delete from public.referencias where code = p_code;
-      insert into public.referencias (banco, referencia, code) values (coalesce(o.pago ->> 'banco', ''), ref, p_code)
+      insert into public.referencias (banco, referencia, code) values (coalesce(o.pago ->> 'banco', ''), public.ref_norm(ref), p_code)
       on conflict (banco, referencia) do nothing;
-      if not exists (select 1 from public.referencias where banco = coalesce(o.pago ->> 'banco', '') and referencia = ref and code = p_code) then
+      if not exists (select 1 from public.referencias where banco = coalesce(o.pago ->> 'banco', '') and referencia = public.ref_norm(ref) and code = p_code) then
         perform public.fallar('Esa referencia ya está registrada en otro pedido.');
       end if;
     end if;
     update public.pedidos set st = 'caja',
       pago = coalesce(o.pago, '{}'::jsonb) || case when ref <> '' then jsonb_build_object('referencia', ref) else '{}'::jsonb end,
-      tag = 'Datos corregidos por asesor'
+      tag = case when est = 'otro_banco' then 'Referencia repetida en otro banco: revisar con cuidado' else 'Datos corregidos por asesor' end
      where code = p_code;
     e := 'Asesor corrigió los datos del pago' || case when ref <> '' then ' (ref. ' || ref || ')' else '' end;
 
@@ -438,6 +475,7 @@ begin
 
   when 'telefono' then
     if not public.tiene_rol('asesor', 'operador') then perform public.fallar('No tienes permiso para cambiar el teléfono.'); end if;
+    if o.st not in ('cliente', 'standby', 'noval') then perform public.fallar('El teléfono solo se cambia antes de facturar.'); end if;
     txt := trim(coalesce(p_datos ->> 'telefono', ''));
     if length(regexp_replace(txt, '\D', '', 'g')) < 10 then perform public.fallar('Escribe un teléfono válido.'); end if;
     update public.pedidos set cliente = o.cliente || jsonb_build_object('telefono', txt) where code = p_code;
@@ -461,7 +499,10 @@ begin
     if o.st <> 'despacho' then perform public.fallar('Este pedido no está en Despacho.'); end if;
     txt := coalesce(p_datos ->> 'slot', '');
     if txt not in ('factura', 'equipo', 'empaque', 'entrega') then perform public.fallar('Tipo de foto no válido.'); end if;
-    if coalesce(p_datos ->> 'ruta', '') not like p_code || '/%' then perform public.fallar('Ruta de foto no válida.'); end if;
+    if coalesce(p_datos ->> 'ruta', '') !~ ('^' || p_code || '/' || txt || '-[0-9]+\.jpg$') then perform public.fallar('Ruta de foto no válida.'); end if;
+    if not exists (select 1 from storage.objects where bucket_id = 'despacho' and name = p_datos ->> 'ruta') then
+      perform public.fallar('La foto no terminó de subir. Tómala de nuevo.');
+    end if;
     update public.pedidos set fotos = o.fotos || jsonb_build_object(txt, p_datos ->> 'ruta') where code = p_code;
     e := 'Foto de ' || txt || ' guardada';
 
@@ -513,12 +554,32 @@ end $$;
 -- Volver a enviar un WhatsApp al cliente
 create or replace function public.reenviar_aviso(p_code text, p_tipo text default 'enlace') returns void
 language plpgsql security definer set search_path = public as $$
+declare o public.pedidos;
 begin
-  if not public.es_personal() then perform public.fallar('Tu usuario no está activo.'); end if;
-  if p_tipo not in ('enlace', 'lecheria', 'alternativas', 'despachado') then perform public.fallar('Tipo de aviso no válido.'); end if;
-  if not exists (select 1 from public.pedidos where code = p_code) then perform public.fallar('No encontré el pedido.'); end if;
+  if not public.tiene_rol('operador', 'asesor', 'ajuste') then perform public.fallar('No tienes permiso para reenviar avisos.'); end if;
+  select * into o from public.pedidos where code = p_code;
+  if not found then perform public.fallar('No encontré el pedido.'); end if;
+  if not (   (p_tipo = 'enlace' and o.st = 'cliente')
+          or (p_tipo = 'lecheria' and o.st = 'traslado' and o.ajuste ->> 'origen' = 'Lechería')
+          or (p_tipo = 'alternativas' and o.st = 'espera')
+          or (p_tipo = 'despachado' and o.st = 'despachado')) then
+    perform public.fallar('Ese aviso no corresponde al estado actual del pedido.');
+  end if;
+  if (select count(*) from public.eventos where code = p_code and e like 'WhatsApp reenviado%' and t > now() - interval '24 hours') >= 3 then
+    perform public.fallar('Ya se reenvió 3 veces hoy. Escríbele al cliente desde Callbell.');
+  end if;
   insert into public.mensajes (code, tipo) values (p_code, p_tipo);
   perform public.registrar(p_code, 'WhatsApp reenviado (' || p_tipo || ')');
+end $$;
+
+-- Enlace del cliente, solo para los roles que atienden clientes
+create or replace function public.enlace_cliente(p_code text) returns text
+language plpgsql security definer set search_path = public as $$
+declare v text;
+begin
+  if not public.tiene_rol('operador', 'asesor', 'ajuste') then perform public.fallar('No tienes permiso para ver el enlace del cliente.'); end if;
+  select token into v from public.pedidos_token where code = p_code;
+  return v;
 end $$;
 
 -- Productos a apagar en Cashea
@@ -581,7 +642,7 @@ language sql stable security definer set search_path = public as $$
        'motivo', ajuste ->> 'motivo', 'origen', ajuste ->> 'origen', 'solicitado_at', ajuste ->> 'solicitado_at',
        'alternativas', ajuste -> 'alternativas', 'respuesta', ajuste ->> 'respuesta'))
   )
-  from public.pedidos where token = p_token and length(p_token) >= 24
+  from public.pedidos where code = (select t.code from public.pedidos_token t where t.token = p_token and length(p_token) >= 24)
 $$;
 
 -- El cliente elige su entrega y reporta su pago móvil
@@ -597,7 +658,7 @@ declare
   v_fec  date;
   v_est  text := 'ok';
 begin
-  select * into o from public.pedidos where token = p_token and length(p_token) >= 24 for update;
+  select * into o from public.pedidos where code = (select t.code from public.pedidos_token t where t.token = p_token and length(p_token) >= 24) for update;
   if not found then return 'no_existe'; end if;
   if o.st <> 'cliente' then return 'ya_enviado'; end if;
   if not public.metodo_permitido(v_ciu, v_met) then return 'metodo_invalido'; end if;
@@ -605,7 +666,7 @@ begin
   if v_met = 'Delivery' and length(v_det) < 8 then return 'falta_direccion'; end if;
 
   if o.ini_pct > 0 then
-    if v_ban = '' or length(v_ref) < 6 or length(v_ref) > 20 then return 'pago_incompleto'; end if;
+    if not public.banco_valido(v_ban) or length(v_ref) < 6 or length(v_ref) > 20 then return 'pago_incompleto'; end if;
     if length(regexp_replace(coalesce(p_pago ->> 'telefono', ''), '\D', '', 'g')) < 10 then return 'pago_incompleto'; end if;
     begin v_fec := (p_pago ->> 'fecha')::date; exception when others then return 'pago_incompleto'; end;
     if v_fec is null or v_fec > (now() at time zone 'America/Caracas')::date or v_fec < (now() at time zone 'America/Caracas')::date - 7 then
@@ -615,9 +676,9 @@ begin
     if v_est = 'duplicada' then return 'duplicada'; end if;
     delete from public.referencias where code = o.code;
     -- Si otro cliente registra la misma referencia en el mismo instante, gana el primero
-    insert into public.referencias (banco, referencia, code) values (v_ban, v_ref, o.code)
+    insert into public.referencias (banco, referencia, code) values (v_ban, public.ref_norm(v_ref), o.code)
     on conflict (banco, referencia) do nothing;
-    if not exists (select 1 from public.referencias where banco = v_ban and referencia = v_ref and code = o.code) then
+    if not exists (select 1 from public.referencias where banco = v_ban and referencia = public.ref_norm(v_ref) and code = o.code) then
       return 'duplicada';
     end if;
   end if;
@@ -638,7 +699,7 @@ create or replace function public.cliente_responder(p_token text, p_tipo text, p
 returns text language plpgsql security definer set search_path = public as $$
 declare o public.pedidos; v_alt text;
 begin
-  select * into o from public.pedidos where token = p_token and length(p_token) >= 24 for update;
+  select * into o from public.pedidos where code = (select t.code from public.pedidos_token t where t.token = p_token and length(p_token) >= 24) for update;
   if not found then return 'no_existe'; end if;
 
   if p_tipo = 'alternativa' then
@@ -697,10 +758,10 @@ begin
   select coalesce(jsonb_agg(jsonb_build_object(
     'id', u.id, 'tipo', u.tipo, 'para', u.para, 'texto', u.texto, 'intentos', u.intentos,
     'pedido', case when p.code is null then null else jsonb_build_object(
-      'code', p.code, 'token', p.token, 'st', p.st, 'producto', p.producto, 'ini_pct', p.ini_pct, 'ini_monto', p.ini_monto,
+      'code', p.code, 'token', t.token, 'st', p.st, 'producto', p.producto, 'ini_pct', p.ini_pct, 'ini_monto', p.ini_monto,
       'cliente', p.cliente, 'entrega', p.entrega, 'ajuste', p.ajuste, 'tienda', p.tienda) end) order by u.id), '[]'::jsonb)
   into r
-  from upd u left join public.pedidos p on p.code = u.code;
+  from upd u left join public.pedidos p on p.code = u.code left join public.pedidos_token t on t.code = u.code;
   return r;
 end $$;
 
@@ -815,11 +876,17 @@ alter table public.correos          enable row level security;
 alter table public.mensajes         enable row level security;
 alter table public.alertas          enable row level security;
 alter table public.productos_estado enable row level security;
+alter table public.pedidos_token    enable row level security;
 
 -- Nadie escribe directo en las tablas: todo pasa por las funciones de arriba.
 revoke all on all tables in schema public from anon;
-revoke insert, update, delete, truncate on all tables in schema public from authenticated;
+revoke insert, update, delete, truncate, references, trigger on all tables in schema public from authenticated;
 grant select on all tables in schema public to authenticated;
+revoke all on public.pedidos_token from authenticated;
+-- Lo que se cree en el futuro tampoco queda abierto por defecto
+alter default privileges in schema public revoke all on tables from anon, authenticated;
+alter default privileges in schema public revoke all on sequences from anon, authenticated;
+alter default privileges in schema public revoke execute on functions from public, anon, authenticated;
 grant all on all tables in schema public to service_role;
 grant usage, select on all sequences in schema public to service_role;
 
@@ -861,6 +928,7 @@ grant execute on function public.ingresar_pedido(jsonb, bigint)         to authe
 grant execute on function public.tomar_siguiente(text)                  to authenticated;
 grant execute on function public.accion(text, text, jsonb)              to authenticated;
 grant execute on function public.reenviar_aviso(text, text)             to authenticated;
+grant execute on function public.enlace_cliente(text)                   to authenticated;
 grant execute on function public.marcar_producto(text, boolean)         to authenticated;
 grant execute on function public.ranking_agotados(int)                  to authenticated;
 grant execute on function public.resumen_hoy()                          to authenticated;
@@ -876,12 +944,14 @@ do $$ begin alter publication supabase_realtime add table public.alertas;       
 do $$ begin alter publication supabase_realtime add table public.productos_estado; exception when duplicate_object then null; end $$;
 
 -- ------------------------------------------- fotos de despacho (privadas) ---
-insert into storage.buckets (id, name, public) values ('despacho', 'despacho', false)
-on conflict (id) do update set public = false;
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('despacho', 'despacho', false, 5242880, array['image/jpeg'])
+on conflict (id) do update set public = false, file_size_limit = 5242880, allowed_mime_types = array['image/jpeg'];
 
 drop policy if exists despacho_subir on storage.objects;
 create policy despacho_subir on storage.objects for insert to authenticated
-  with check (bucket_id = 'despacho' and (select public.tiene_rol('despacho')));
+  with check (bucket_id = 'despacho' and (select public.tiene_rol('despacho'))
+              and name ~ '^[0-9]+/(factura|equipo|empaque|entrega)-[0-9]+\.jpg$');
 drop policy if exists despacho_ver on storage.objects;
 create policy despacho_ver on storage.objects for select to authenticated
   using (bucket_id = 'despacho' and (select public.es_personal()));

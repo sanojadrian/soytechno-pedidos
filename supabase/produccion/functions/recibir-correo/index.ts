@@ -7,7 +7,9 @@
 // Secretos (Supabase → Edge Functions → Secrets):
 //   INGRESO_CLAVE    clave compartida con el script de Gmail (obligatoria)
 //   PROCESO_CLAVE    clave para avisar a procesar-mensajes (obligatoria)
+//   REMITENTES_PERMITIDOS  dominios o correos de Cashea, separados por coma (obligatoria). Ej.: cashea.app
 //   SERVICIO_CLAVE   la clave secreta del proyecto, solo si SUPABASE_SERVICE_ROLE_KEY no existe
+// Solo se crean pedidos de correos que vienen de Cashea y que Gmail comprobó (DKIM/DMARC).
 // Ajuste: Enforce JWT verification = APAGADO (la protege INGRESO_CLAVE).
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type, x-clave', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
@@ -27,6 +29,22 @@ async function rest(path: string, init: RequestInit & { prefer?: string } = {}) 
   let d: any = null; try { d = t ? JSON.parse(t) : null; } catch { d = t; }
   if (!r.ok) throw new Error((d && (d.message || d.error)) || `Error ${r.status}`);
   return d;
+}
+
+/** Comparación en tiempo constante para claves compartidas */
+function claveIgual(a: string, b: string): boolean {
+  if (!a || !b || a.length !== b.length) return false;
+  let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+}
+
+/** ¿El remitente es de Cashea? Acepta dominios ("cashea.app") o correos completos. */
+export function remitentePermitido(remitente: string, lista: string): boolean {
+  const m = String(remitente || '').toLowerCase().match(/[^\s<>"]+@([^\s<>"]+)/);
+  if (!m) return false;
+  const correo = m[0], dominio = m[1];
+  return lista.split(',').map(x => x.trim().toLowerCase()).filter(Boolean)
+    .some(x => x.includes('@') ? correo === x : dominio === x || dominio.endsWith('.' + x));
 }
 
 /* ---------- lector del correo de Cashea (mismo criterio que la demo) ---------- */
@@ -102,7 +120,7 @@ export const esCorreoDePedido = (txt: string) => norm(txt).includes('codigo de i
 export async function manejar(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ ok: false, detalle: 'Usa POST.' }, 405);
-  if (!env('INGRESO_CLAVE') || req.headers.get('x-clave') !== env('INGRESO_CLAVE')) return json({ ok: false, detalle: 'Clave de ingreso incorrecta.' }, 401);
+  if (!claveIgual(req.headers.get('x-clave') || '', env('INGRESO_CLAVE'))) return json({ ok: false, detalle: 'Clave de ingreso incorrecta.' }, 401);
 
   let b: any;
   try { b = await req.json(); } catch { return json({ ok: false, detalle: 'Cuerpo no válido.' }, 400); }
@@ -124,11 +142,17 @@ export async function manejar(req: Request): Promise<Response> {
   // 2) ¿Es un correo de pedido?
   if (!esCorreoDePedido(texto)) { await marcar('ignorado', { detalle: 'No es un correo de pedido de Cashea.' }); return json({ ok: true, estado: 'ignorado' }); }
 
-  // 3) Leerlo
+  // 3) ¿Viene de verdad de Cashea? Si no, queda para que el operador lo revise; nunca crea un pedido.
+  const remitente = String(b?.remitente || '');
+  if (!env('REMITENTES_PERMITIDOS')) { await marcar('revisar', { detalle: 'Falta configurar el secreto REMITENTES_PERMITIDOS.' }); return json({ ok: true, estado: 'revisar', detalle: 'Falta REMITENTES_PERMITIDOS' }); }
+  if (!remitentePermitido(remitente, env('REMITENTES_PERMITIDOS'))) { await marcar('revisar', { detalle: 'Remitente no autorizado: ' + remitente.slice(0, 120) + '. Puede ser un correo falso.' }); return json({ ok: true, estado: 'revisar', detalle: 'Remitente no autorizado' }); }
+  if (b?.autenticado !== true) { await marcar('revisar', { detalle: 'Gmail no pudo comprobar que el correo venga de Cashea (DKIM/DMARC). Puede ser falso.' }); return json({ ok: true, estado: 'revisar', detalle: 'Correo no autenticado' }); }
+
+  // 4) Leerlo
   const p = leerCashea(texto);
   if (p.errores.length) { await marcar('revisar', { code: p.code || null, detalle: p.errores.join(' ') }); return json({ ok: true, estado: 'revisar', detalle: p.errores }); }
 
-  // 4) Crear el pedido
+  // 5) Crear el pedido
   let r: any;
   try {
     r = await rest('rpc/ingresar_pedido', { method: 'POST', body: JSON.stringify({ p, p_correo_id: correo.id }) });
@@ -136,9 +160,13 @@ export async function manejar(req: Request): Promise<Response> {
     await marcar('revisar', { code: p.code, detalle: String((e as Error).message) });
     return json({ ok: true, estado: 'revisar', detalle: String((e as Error).message) });
   }
+  if (r.estado === 'conflicto') {
+    await marcar('revisar', { code: p.code, detalle: 'Ya existía este pedido con otro cliente. Confirma en el portal de Cashea cuál es el verdadero.' });
+    return json({ ok: true, estado: 'conflicto', code: p.code });
+  }
   await marcar(r.estado === 'creado' ? 'ok' : 'duplicado', { code: p.code, detalle: r.estado === 'creado' ? null : 'El pedido ya existía.' });
 
-  // 5) Avisar a la cola de WhatsApp para que salga de inmediato (si falla, el cron lo envía en un minuto)
+  // 6) Avisar a la cola de WhatsApp para que salga de inmediato (si falla, el cron lo envía en un minuto)
   if (r.estado === 'creado' && env('PROCESO_CLAVE')) {
     try { await fetch(`${env('SUPABASE_URL')}/functions/v1/procesar-mensajes`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-clave': env('PROCESO_CLAVE') }, body: '{}' }); } catch { /* el cron lo reintenta */ }
   }

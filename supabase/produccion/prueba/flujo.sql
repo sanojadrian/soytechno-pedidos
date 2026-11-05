@@ -41,22 +41,25 @@ select pg_temp.igual(ingresar_pedido('{"code":"1001","producto":"SAMSUNG A16","t
 select pg_temp.igual(ingresar_pedido('{"code":"1002","producto":"REDMI 14C","total":120,"ini_pct":0,"ini_monto":0,"cliente":{"nombre":"PEDRO PÉREZ","telefono":"04145550124","cedula":"22333444"}}') ->> 'estado', 'creado', 'crear 1002');
 select pg_temp.igual(ingresar_pedido('{"code":"1003","producto":"COMBO MIX","total":300,"mix":true,"cliente":{"nombre":"ANA","telefono":"04145550125"}}') ->> 'estado', 'creado', 'crear 1003 MIX');
 select pg_temp.igual(ingresar_pedido('{"code":"1004","producto":"TECNO SPARK","total":150,"ini_pct":30,"ini_monto":51.7,"cliente":{"nombre":"CARLOS","telefono":"04245550188"}}') ->> 'estado', 'creado', 'crear 1004');
-select pg_temp.igual(ingresar_pedido('{"code":"1001","producto":"SAMSUNG A16","total":172.41,"cliente":{"telefono":"1"}}') ->> 'estado', 'duplicado', 'no duplica');
+select pg_temp.igual(ingresar_pedido('{"code":"1001","producto":"SAMSUNG A16","total":172.41,"cliente":{"telefono":"+584145550123","cedula":"12345678"}}') ->> 'estado', 'duplicado', 'no duplica');
 select pg_temp.fallo($$select ingresar_pedido('{"code":"1009","producto":"X","total":0,"cliente":{"telefono":"04140000000"}}')$$, 'total');
+select pg_temp.igual(ingresar_pedido('{"code":"1001","producto":"SAMSUNG A16","total":172.41,"cliente":{"nombre":"ATACANTE","telefono":"+15550001111","cedula":"999"}}') ->> 'estado', 'conflicto', 'mismo pedido con otro cliente: conflicto');
+select pg_temp.igual(ingresar_pedido('{"code":"1001","producto":"SAMSUNG A16","total":172.41,"cliente":{"nombre":"MARÍA","telefono":"0414-555-0123","cedula":"12345678"}}') ->> 'estado', 'duplicado', 'mismo cliente con otro formato: duplicado normal');
 reset role;
 select pg_temp.igual((select st from pedidos where code='1003'), 'standby', 'MIX va a stand-by');
 select pg_temp.igual((select count(*) from mensajes where tipo='enlace')::int, 3, 'enlaces en cola (no el MIX)');
-select pg_temp.igual((select count(*) from eventos)::int, 4, 'eventos de ingreso');
-select pg_temp.igual(length((select token from pedidos where code='1001')), 32, 'token largo');
+select pg_temp.igual((select count(*) from eventos)::int, 5, 'eventos de ingreso (incluye la alerta de conflicto)');
+select pg_temp.igual((select count(*) from alertas where tipo='conflicto')::int, 1, 'alerta de conflicto');
+select pg_temp.igual(length((select token from pedidos_token where code='1001')), 32, 'token largo');
 
 -- ===== 2. Cliente (anónimo) =====
 set role anon; select null from set_config('request.jwt.claims', '{"role":"anon"}', false);
 select pg_temp.fallo('select * from pedidos', 'permission denied');
 select pg_temp.fallo($$select accion('1001','facturar')$$, 'permission denied');
 reset role;
-select token as t1 from pedidos where code='1001' \gset
-select token as t2 from pedidos where code='1002' \gset
-select token as t4 from pedidos where code='1004' \gset
+select token as t1 from pedidos_token where code='1001' \gset
+select token as t2 from pedidos_token where code='1002' \gset
+select token as t4 from pedidos_token where code='1004' \gset
 set role anon; select null from set_config('request.jwt.claims', '{"role":"anon"}', false);
 select pg_temp.igual(cliente_ver(:'t1') ->> 'nombre', 'María', 'nombre corto');
 select pg_temp.igual(cliente_ver(:'t1') ? 'cliente', false, 'no expone datos personales');
@@ -68,6 +71,8 @@ select pg_temp.igual(cliente_enviar(:'t1', '{"ciudad":"Valencia","metodo":"MRW",
 select pg_temp.igual(cliente_enviar(:'t2', '{"ciudad":"Caracas","metodo":"Delivery","detalle":"corto"}', '{}'), 'falta_direccion', 'dirección');
 select pg_temp.igual(cliente_enviar(:'t2', '{"ciudad":"Caracas","metodo":"Delivery","detalle":"Av. Francisco de Miranda, Los Palos Grandes"}', '{}'), 'ok', 'cliente envía 1002 sin inicial');
 select pg_temp.igual(cliente_enviar(:'t4', '{"ciudad":"Maracaibo","metodo":"MRW","detalle":"MRW Maracaibo"}', jsonb_build_object('banco','Banco de Venezuela','referencia','004598120377','telefono','04245550188','fecha',(now() at time zone 'America/Caracas')::date)), 'duplicada', 'referencia repetida bloqueada');
+select pg_temp.igual(cliente_enviar(:'t4', '{"ciudad":"Maracaibo","metodo":"MRW","detalle":"MRW Maracaibo"}', jsonb_build_object('banco','Banco de Venezuela','referencia','4598120377','telefono','04245550188','fecha',(now() at time zone 'America/Caracas')::date)), 'duplicada', 'misma referencia sin ceros: bloqueada');
+select pg_temp.igual(cliente_enviar(:'t4', '{"ciudad":"Maracaibo","metodo":"MRW","detalle":"MRW Maracaibo"}', jsonb_build_object('banco','banco de venezuela','referencia','004598120377','telefono','04245550188','fecha',(now() at time zone 'America/Caracas')::date)), 'pago_incompleto', 'banco inventado: rechazado');
 select pg_temp.igual(cliente_enviar(:'t4', '{"ciudad":"Maracaibo","metodo":"MRW","detalle":"MRW Maracaibo"}', jsonb_build_object('banco','Banesco','referencia','004598120377','telefono','04245550188','fecha',(now() at time zone 'America/Caracas')::date)), 'ok', 'misma ref otro banco pasa con aviso');
 reset role;
 select pg_temp.igual((select dept from pedidos where code='1001'), 'MRW', 'dept MRW');
@@ -91,10 +96,17 @@ select pg_temp.igual((accion('1001','facturar')).st, 'despacho', 'Carla factura'
 select null from set_config('request.jwt.claims', '{"role":"authenticated","sub":"00000000-0000-0000-0000-000000000004"}', false);
 select pg_temp.igual((accion('1004','noval')).st, 'noval', 'Luis no pudo validar');
 
+select pg_temp.fallo($$select * from pedidos_token$$, 'permission denied');
+select pg_temp.fallo($$select enlace_cliente('1001')$$, 'No tienes permiso');
+select pg_temp.fallo($$select reenviar_aviso('1001','despachado')$$, 'No tienes permiso');
 -- ===== 4. Despacho =====
 select null from set_config('request.jwt.claims', '{"role":"authenticated","sub":"00000000-0000-0000-0000-000000000006"}', false);
 select pg_temp.fallo($$select accion('1001','despachar','{"guia":"123"}')$$, 'fotos obligatorias');
 select pg_temp.fallo($$select accion('1001','foto','{"slot":"factura","ruta":"9999/x.jpg"}')$$, 'Ruta de foto');
+select pg_temp.fallo($$select accion('1001','foto','{"slot":"factura","ruta":"1004/../1001/factura-1.jpg"}')$$, 'Ruta de foto');
+select pg_temp.fallo($$select accion('1001','foto','{"slot":"factura","ruta":"1001/factura-1.jpg"}')$$, 'no terminó de subir');
+reset role; insert into storage.objects (bucket_id, name) values ('despacho','1001/factura-1.jpg'), ('despacho','1001/equipo-1.jpg'); set role authenticated;
+select null from set_config('request.jwt.claims', '{"role":"authenticated","sub":"00000000-0000-0000-0000-000000000006"}', false);
 select pg_temp.igual((accion('1001','foto','{"slot":"factura","ruta":"1001/factura-1.jpg"}')).fotos ? 'factura', true, 'foto factura');
 select pg_temp.igual((accion('1001','foto','{"slot":"equipo","ruta":"1001/equipo-1.jpg"}')).fotos ? 'equipo', true, 'foto equipo');
 select pg_temp.fallo($$select accion('1001','despachar','{}')$$, 'guía de MRW');
@@ -105,6 +117,11 @@ select pg_temp.fallo($$select accion('1004','facturar')$$, 'ya no está en tu ca
 select null from set_config('request.jwt.claims', '{"role":"authenticated","sub":"00000000-0000-0000-0000-000000000008"}', false);
 select pg_temp.igual((accion('1004','a_admin','{"tipo":"Transferencia","destino":"Mercantil 0414"}')).st, 'admin', 'a admin');
 select pg_temp.igual((accion('1003','mix_listo')).st, 'cliente', 'MIX revisado');
+select pg_temp.igual(length(enlace_cliente('1003')), 32, 'asesor ve el enlace');
+select pg_temp.fallo($$select reenviar_aviso('1003','despachado')$$, 'no corresponde');
+select reenviar_aviso('1003','enlace'); select reenviar_aviso('1003','enlace'); select reenviar_aviso('1003','enlace');
+select pg_temp.fallo($$select reenviar_aviso('1003','enlace')$$, '3 veces');
+select pg_temp.fallo($$select accion('1001','telefono','{"telefono":"04149999999"}')$$, 'antes de facturar');
 select null from set_config('request.jwt.claims', '{"role":"authenticated","sub":"00000000-0000-0000-0000-000000000009"}', false);
 select pg_temp.igual((accion('1004','aprobar')).tag, 'Pago aprobado por Administración', 'admin aprueba');
 
@@ -168,10 +185,10 @@ select marcar_producto('REDMI 14C', true);
 reset role;
 
 -- ===== 11. Cola de WhatsApp (servidor) =====
-select pg_temp.igual((select string_agg(tipo, ',' order by id) from mensajes), 'enlace,enlace,enlace,despachado,enlace,alternativas,lecheria', 'avisos en cola');
+select pg_temp.igual((select string_agg(tipo, ',' order by id) from mensajes), 'enlace,enlace,enlace,despachado,enlace,enlace,enlace,enlace,alternativas,lecheria', 'avisos en cola');
 set role service_role; select null from set_config('request.jwt.claims', '{"role":"service_role"}', false) x;
 select jsonb_array_length(tomar_mensajes(3)) = 3;
-select pg_temp.igual(jsonb_array_length(tomar_mensajes(10)), 4, 'el resto');
+select pg_temp.igual(jsonb_array_length(tomar_mensajes(10)), 7, 'el resto');
 select pg_temp.igual(jsonb_array_length(tomar_mensajes(10)), 0, 'nada se entrega dos veces');
 select resultado_mensaje(1, true, null, 'uuid-1');
 select resultado_mensaje(2, false, 'Callbell 500');

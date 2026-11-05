@@ -33,6 +33,12 @@
 | Especificación | https://claude.ai/artifact/3bd8QsaCqGT5bxcfNHjDrz |
 | Propuesta formal (privada) | https://claude.ai/artifact/TqU71Qmc1x1wwtGVVbUVuQ |
 | Manual por rol | https://claude.ai/artifact/Nd6q25fnwb8E8MoNcRDszt |
+| Antes y después (pantalla dividida) | https://claude.ai/artifact/8QuK9ua1ivSSG2rdWBVqhZ |
+| Historia de María | https://claude.ai/artifact/AWC9Xw8UEFAYxcA3DWp4bP |
+| Soytechno en vivo (tienda animada) | https://claude.ai/artifact/S23P4bcDnsqFQLwuTWzzNG |
+| Tablero CEO | https://claude.ai/artifact/M2ZfgjH5dHbXztyPatp8B2 |
+| Un día de temporada alta | https://claude.ai/artifact/1Cy4VHYttqeoseswPBLgg5 |
+| Guía de puesta en marcha (requisitos y pasos) | https://claude.ai/artifact/DiPERVGm1YAmNc5rCjob2L |
 | Videos (horizontal y vertical, voz de Antonio) | enviados a Adrian; se regeneran con `herramientas/video/` |
 
 ## Propuesta comercial
@@ -48,7 +54,7 @@
 ## Siguientes pasos
 1. Adrian crea el proyecto de Supabase de producción y sigue `INSTALACION.md`.
 2. Pasar a Claude: Project URL, clave publishable, datos del pago móvil (banco, teléfono, RIF) y el dominio de Cashea.
-3. Soytechno: clave de API de Callbell (nueva, nunca por chat), plantilla de WhatsApp aprobada, acceso al Gmail de los pedidos, lista de usuarios, dominio propio (p. ej. `pedidos.soytechno.com`).
+3. Soytechno: clave de API de Callbell (nueva, nunca por chat), 5 plantillas de WhatsApp aprobadas, acceso al Gmail de los pedidos, lista de usuarios, dominio propio (p. ej. `pedidos.soytechno.com`), publicado con Cloudflare Pages (carpeta `produccion`).
 4. Piloto con una caja y `SOLO_TELEFONOS`; luego todas las cajas.
 
 ## Reglas de trabajo

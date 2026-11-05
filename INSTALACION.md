@@ -104,7 +104,11 @@ Si me pasas la Project URL, la clave publishable y los datos del pago móvil, lo
 
 **Dónde publicarla (importante para la seguridad):** la producción debe tener **su propia dirección**,
 no la misma de la demo. Lo recomendado es un subdominio de Soytechno, por ejemplo `pedidos.soytechno.com`
-(lo configura quien maneja el dominio de Soytechno; yo te preparo los pasos). Mientras tanto se puede probar en
+(lo configura quien maneja el dominio de Soytechno; yo te preparo los pasos). Cómo publicarla con Cloudflare Pages (gratis): dash.cloudflare.com → Workers & Pages → Create → Pages →
+conectar este repositorio de GitHub → comando de compilación vacío → carpeta de salida `produccion` → Deploy.
+Luego, en Custom domains, agregar `pedidos.soytechno.com` y crear el registro CNAME que indique.
+
+Mientras tanto se puede probar en
 `https://sanojadrian.github.io/soytechno-pedidos/produccion/`, pero no se debe operar ahí con clientes reales:
 comparte dirección con la demo, que es abierta.
 
